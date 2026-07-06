@@ -38,6 +38,9 @@ test("student sees only teammates in the evaluation form", async ({ page }) => {
   await login(page, "joe@vt.edu");
   await expect(page).toHaveURL(/\/student/);
 
+  // Wait for the round to render before branching, so the count below is not
+  // taken from a still-loading page.
+  await expect(page.getByText(/Sprint \d+ Evaluation/)).toBeVisible();
   const submitted = await page.getByText("Submitted", { exact: false }).count();
   if (submitted === 0) {
     // Joe (Team Alpha) sees Peter and Sarah, never himself or Team Beta members.
