@@ -40,10 +40,10 @@ export function LoginForm() {
   }
 
   return (
-    <Card className="w-full max-w-sm">
+    <Card className="w-full max-w-sm border-t-4 border-t-vt-orange shadow-xl">
       <CardHeader>
-        <CardTitle className="text-2xl">VT PeerPulse</CardTitle>
-        <CardDescription>Sign in with your university email.</CardDescription>
+        <CardTitle className="text-2xl">Sign in</CardTitle>
+        <CardDescription>Use your university email.</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>

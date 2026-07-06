@@ -5,24 +5,28 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  /* Virginia Tech brand: Chicago Maroon #861F41, Burnt Orange #E5751F */
+  --vt-maroon: #861f41;
+  --vt-maroon-dark: #630031;
+  --vt-orange: #e5751f;
+  --background: #fdfbfc;
+  --foreground: #26161d;
+  --card: #ffffff;
+  --card-foreground: #26161d;
+  --popover: #ffffff;
+  --popover-foreground: #26161d;
+  --primary: #861f41;
+  --primary-foreground: #ffffff;
+  --secondary: #f7edf1;
+  --secondary-foreground: #63182f;
+  --muted: #f6f1f3;
+  --muted-foreground: #6e5c63;
+  --accent: #f7edf1;
+  --accent-foreground: #861f41;
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --border: #eadfe4;
+  --input: #eadfe4;
+  --ring: #861f41;
   /* CVD-validated categorical palette (light) */
   --chart-1: #2a78d6;
   --chart-2: #1baf7a;
@@ -32,24 +36,27 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --vt-maroon: #a8446a;
+  --vt-maroon-dark: #630031;
+  --vt-orange: #f08a3d;
+  --background: #1a1216;
+  --foreground: #f6eff2;
+  --card: #241820;
+  --card-foreground: #f6eff2;
+  --popover: #241820;
+  --popover-foreground: #f6eff2;
+  --primary: #a8446a;
+  --primary-foreground: #ffffff;
+  --secondary: #341f2a;
+  --secondary-foreground: #f0dbe4;
+  --muted: #2e1e26;
+  --muted-foreground: #b39aa5;
+  --accent: #3a2230;
+  --accent-foreground: #eeb7cb;
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: #a8446a;
   /* CVD-validated categorical palette (dark) */
   --chart-1: #3987e5;
   --chart-2: #199e70;
@@ -83,6 +90,9 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-vt-maroon: var(--vt-maroon);
+  --color-vt-maroon-dark: var(--vt-maroon-dark);
+  --color-vt-orange: var(--vt-orange);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);

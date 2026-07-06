@@ -18,7 +18,7 @@ const LINKS = [
 export function ProfessorNav() {
   const pathname = usePathname();
   return (
-    <nav aria-label="Instructor navigation" className="w-52 shrink-0 border-r p-4">
+    <nav aria-label="Instructor navigation" className="w-52 shrink-0 border-r bg-muted/40 p-4">
       <ul className="space-y-1">
         {LINKS.map((l) => (
           <li key={l.href}>
@@ -26,9 +26,9 @@ export function ProfessorNav() {
               href={l.href}
               aria-current={pathname === l.href ? "page" : undefined}
               className={cn(
-                "block rounded-md px-3 py-2 text-sm hover:bg-accent",
+                "block rounded-md border-l-2 border-transparent px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground",
                 pathname === l.href
-                  ? "bg-accent font-medium text-foreground"
+                  ? "border-vt-orange bg-accent font-semibold text-primary"
                   : "text-muted-foreground",
               )}
             >
