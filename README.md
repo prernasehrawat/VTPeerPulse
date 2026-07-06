@@ -1,36 +1,73 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# VT PeerPulse
 
-## Getting Started
+A university peer-evaluation platform: students evaluate teammates each sprint, instructors monitor team health with analytics, trends, alerts, and AI-generated feedback summaries.
 
-First, run the development server:
+## Stack
+
+Next.js 16 (App Router) · TypeScript (strict) · Tailwind + shadcn/ui · Prisma 7 + PostgreSQL · Auth.js v5 (credentials now, SSO-ready) · TanStack Query · Recharts · Vitest + Playwright · Docker.
+
+## Quick start
 
 ```bash
+# 1. Postgres running locally, then:
+cp .env.example .env          # fill in AUTH_SECRET, DATABASE_URL
+npm install
+npx prisma migrate dev        # create schema
+npx prisma db seed            # demo professor, students, teams, questions, open round
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Seeded logins (password `password123`):
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Professor: `professor@vt.edu`
+- Students: `joe@vt.edu`, `peter@vt.edu`, `sarah@vt.edu`, `aisha@vt.edu`, …
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Docker
 
-## Learn More
+```bash
+AUTH_SECRET=$(openssl rand -base64 32) docker compose up --build
+```
 
-To learn more about Next.js, take a look at the following resources:
+Brings up Postgres, runs migrations, and starts the app on :3000.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Scripts
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` / `build` / `start` | develop / build / serve |
+| `npm run lint` / `typecheck` | ESLint / `tsc --noEmit` |
+| `npm test` | Vitest unit + integration (uses `vtpeerpulse_test` DB from `.env.test`) |
+| `npm run test:e2e` | Playwright smoke tests (starts dev server, uses seeded data) |
+| `npm run db:migrate` / `db:seed` | Prisma migrate dev / seed |
 
-## Deploy on Vercel
+## Architecture
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+src/
+  app/            pages (student/, professor/) + api/ route handlers (thin)
+  server/
+    services/     business logic: evaluations, analytics, csv-import, rounds,
+                  questions, summaries, users, settings, reports, audit
+    ai/           AIProvider interface + OpenAI-compatible & mock implementations
+  lib/            db (Prisma), auth (Auth.js), guards (RBAC + error mapping),
+                  schemas (Zod), env, logger
+  proxy.ts        edge auth guard for page routes
+prisma/           schema, migrations, seed
+tests/            Vitest suites   e2e/  Playwright
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Key invariants (enforced server-side and covered by tests):
+
+- Students evaluate **only teammates**, never themselves, once per round; submissions are immutable.
+- Students never see others' evaluations or who evaluated them; AI prompts never include evaluator identities.
+- Every API endpoint validates its input with Zod and checks role authorization.
+- Questions are database-driven (CRUD, reorder, enable/disable); deleting a question with historical answers deactivates it instead, preserving history.
+- Closing a round snapshots analytics and generates alerts (low average, downward trend, repeated concern, missing submission) with configurable thresholds.
+
+### Swapping the AI provider
+
+Implement `AIProvider` (`src/server/ai/provider.ts`) and return it from `getAIProvider()`. Any OpenAI-compatible endpoint works out of the box via `AI_BASE_URL`/`AI_MODEL`; with no `AI_API_KEY` a deterministic mock is used.
+
+### University SSO later
+
+Auth is centralized in `src/lib/auth.ts`. Add an OIDC/SAML provider to the `providers` array and map its profile to the `User` record — no other layer touches the auth implementation.

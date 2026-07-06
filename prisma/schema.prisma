@@ -1,0 +1,233 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  STUDENT
+  PROFESSOR
+}
+
+enum RoundStatus {
+  DRAFT
+  OPEN
+  CLOSED
+}
+
+enum QuestionType {
+  RATING
+  TEXT
+}
+
+enum SummaryKind {
+  COMPLAINTS
+  POSITIVES
+  CONSTRUCTIVE
+  INSTRUCTOR
+  STUDENT_FEEDBACK
+}
+
+enum SummarySubject {
+  ROUND
+  TEAM
+  STUDENT
+}
+
+enum AlertType {
+  LOW_AVERAGE
+  DOWNWARD_TREND
+  REPEATED_CONCERN
+  MISSING_SUBMISSION
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+model User {
+  id                  String           @id @default(cuid())
+  email               String           @unique
+  name                String
+  role                Role             @default(STUDENT)
+  passwordHash        String?
+  active              Boolean          @default(true)
+  membership          TeamMembership?
+  submissions         Submission[]
+  evaluationsReceived PeerEvaluation[] @relation("evaluatee")
+  alerts              Alert[]
+  notifications       Notification[]
+  auditLogs           AuditLog[]
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@index([role])
+}
+
+model Team {
+  id          String           @id @default(cuid())
+  name        String           @unique
+  memberships TeamMembership[]
+  alerts      Alert[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model TeamMembership {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  teamId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([teamId])
+}
+
+model EvaluationRound {
+  id          String              @id @default(cuid())
+  name        String
+  sprint      Int
+  status      RoundStatus         @default(DRAFT)
+  opensAt     DateTime?
+  closesAt    DateTime?
+  submissions Submission[]
+  summaries   AISummary[]
+  alerts      Alert[]
+  snapshots   AnalyticsSnapshot[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@unique([sprint])
+}
+
+model Question {
+  id        String       @id @default(cuid())
+  prompt    String
+  type      QuestionType @default(RATING)
+  required  Boolean      @default(true)
+  active    Boolean      @default(true)
+  order     Int
+  answers   Answer[]
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([active, order])
+}
+
+/// One per (round, evaluator). Locks all peer evaluations when submitted.
+model Submission {
+  id          String           @id @default(cuid())
+  roundId     String
+  evaluatorId String
+  round       EvaluationRound  @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  evaluator   User             @relation(fields: [evaluatorId], references: [id], onDelete: Cascade)
+  evaluations PeerEvaluation[]
+  submittedAt DateTime         @default(now())
+
+  @@unique([roundId, evaluatorId])
+  @@index([roundId])
+}
+
+model PeerEvaluation {
+  id           String     @id @default(cuid())
+  submissionId String
+  evaluateeId  String
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  evaluatee    User       @relation("evaluatee", fields: [evaluateeId], references: [id], onDelete: Cascade)
+  answers      Answer[]
+
+  @@unique([submissionId, evaluateeId])
+  @@index([evaluateeId])
+}
+
+model Answer {
+  id               String         @id @default(cuid())
+  peerEvaluationId String
+  questionId       String
+  rating           Int?
+  comment          String?
+  peerEvaluation   PeerEvaluation @relation(fields: [peerEvaluationId], references: [id], onDelete: Cascade)
+  question         Question       @relation(fields: [questionId], references: [id], onDelete: Restrict)
+
+  @@unique([peerEvaluationId, questionId])
+  @@index([questionId])
+}
+
+model AnalyticsSnapshot {
+  id        String          @id @default(cuid())
+  roundId   String
+  round     EvaluationRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  data      Json
+  createdAt DateTime        @default(now())
+
+  @@index([roundId])
+}
+
+model AISummary {
+  id          String          @id @default(cuid())
+  roundId     String
+  round       EvaluationRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  subjectType SummarySubject
+  subjectId   String?
+  kind        SummaryKind
+  content     String
+  model       String
+  createdAt   DateTime        @default(now())
+
+  @@index([roundId, subjectType, subjectId])
+}
+
+model Alert {
+  id        String           @id @default(cuid())
+  roundId   String?
+  round     EvaluationRound? @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  type      AlertType
+  severity  AlertSeverity    @default(WARNING)
+  userId    String?
+  user      User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamId    String?
+  team      Team?            @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  message   String
+  resolved  Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([roundId, resolved])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message   String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String?
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([actorId])
+}
+
+/// Key-value app settings (e.g. alert thresholds).
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
