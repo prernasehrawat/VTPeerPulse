@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { computeRoundAnalytics, listAlerts } from "@/server/services/analytics";
+import { resolveCourses } from "@/server/course-resolution";
+import { getRoundAnalytics, listAlerts } from "@/server/services/analytics";
 import { getOpenRound } from "@/server/services/rounds";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,13 +21,19 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 export default async function ProfessorOverview() {
+  const session = await auth();
+  const { active } = await resolveCourses(session!.user.id, "PROFESSOR");
+  if (!active) return null; // layout already shows the "create a course" prompt
+
   const [openRound, studentCount, teamCount, alerts] = await Promise.all([
-    getOpenRound(),
-    db.user.count({ where: { role: "STUDENT", active: true } }),
-    db.team.count(),
-    listAlerts(),
+    getOpenRound(active.id),
+    db.courseEnrollment.count({
+      where: { courseId: active.id, role: "STUDENT", user: { active: true } },
+    }),
+    db.team.count({ where: { courseId: active.id } }),
+    listAlerts(active.id, { page: 1, pageSize: 5 }),
   ]);
-  const analytics = openRound ? await computeRoundAnalytics(openRound.id) : null;
+  const analytics = openRound ? await getRoundAnalytics(openRound.id) : null;
 
   return (
     <div className="space-y-6">
@@ -36,7 +44,7 @@ export default async function ProfessorOverview() {
           label="Active round completion"
           value={analytics ? `${analytics.completionPct}%` : "—"}
         />
-        <Stat label="Open alerts" value={String(alerts.length)} />
+        <Stat label="Open alerts" value={String(alerts.total)} />
       </div>
 
       <Card>
@@ -53,7 +61,7 @@ export default async function ProfessorOverview() {
               </>
             ) : (
               <>
-                No round is currently open.{" "}
+                No round is currently open in {active.code}.{" "}
                 <Link className="underline" href="/professor/rounds">
                   Open one from Rounds.
                 </Link>
@@ -68,11 +76,11 @@ export default async function ProfessorOverview() {
           <CardTitle className="text-base">Recent alerts</CardTitle>
         </CardHeader>
         <CardContent>
-          {alerts.length === 0 ? (
+          {alerts.items.length === 0 ? (
             <p className="text-sm text-muted-foreground">No unresolved alerts.</p>
           ) : (
             <ul className="space-y-2 text-sm">
-              {alerts.slice(0, 5).map((a) => (
+              {alerts.items.map((a) => (
                 <li key={a.id} className="flex items-center gap-2">
                   <Badge variant={a.severity === "CRITICAL" ? "destructive" : "secondary"}>
                     {a.type.replaceAll("_", " ")}

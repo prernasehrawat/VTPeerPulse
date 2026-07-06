@@ -3,10 +3,10 @@ import { HttpError } from "@/lib/errors";
 import type { SubmissionInput } from "@/lib/schemas";
 import { audit } from "./audit";
 
-/** Teammates of a student (their team minus themselves). */
-export async function getTeammates(userId: string) {
+/** Teammates of a student within a course (their team minus themselves). */
+export async function getTeammates(userId: string, courseId: string) {
   const membership = await db.teamMembership.findUnique({
-    where: { userId },
+    where: { userId_courseId: { userId, courseId } },
     include: { team: { include: { memberships: { include: { user: true } } } } },
   });
   if (!membership) return { team: null, teammates: [] };
@@ -16,13 +16,13 @@ export async function getTeammates(userId: string) {
   return { team: { id: membership.team.id, name: membership.team.name }, teammates };
 }
 
-/** Student-facing view of the currently open round: questions, teammates, own status. */
-export async function getCurrentEvaluationContext(userId: string) {
-  const round = await db.evaluationRound.findFirst({ where: { status: "OPEN" } });
-  const { team, teammates } = await getTeammates(userId);
+/** Student-facing view of a course's open round: questions, teammates, own status. */
+export async function getCurrentEvaluationContext(userId: string, courseId: string) {
+  const round = await db.evaluationRound.findFirst({ where: { courseId, status: "OPEN" } });
+  const { team, teammates } = await getTeammates(userId, courseId);
   if (!round) return { round: null, team, teammates, questions: [], submission: null };
   const [questions, submission] = await Promise.all([
-    db.question.findMany({ where: { active: true }, orderBy: { order: "asc" } }),
+    db.question.findMany({ where: { courseId, active: true }, orderBy: { order: "asc" } }),
     db.submission.findUnique({
       where: { roundId_evaluatorId: { roundId: round.id, evaluatorId: userId } },
       select: { id: true, submittedAt: true },
@@ -37,12 +37,19 @@ export async function submitEvaluation(userId: string, input: SubmissionInput) {
   if (!round) throw new HttpError(404, "Round not found");
   if (round.status !== "OPEN") throw new HttpError(400, "This round is not open for submissions");
 
+  const enrollment = await db.courseEnrollment.findUnique({
+    where: { courseId_userId: { courseId: round.courseId, userId } },
+  });
+  if (!enrollment || enrollment.role !== "STUDENT") {
+    throw new HttpError(403, "You are not enrolled in this course");
+  }
+
   const existing = await db.submission.findUnique({
     where: { roundId_evaluatorId: { roundId: round.id, evaluatorId: userId } },
   });
   if (existing) throw new HttpError(409, "You have already submitted for this round");
 
-  const { teammates } = await getTeammates(userId);
+  const { teammates } = await getTeammates(userId, round.courseId);
   if (teammates.length === 0) throw new HttpError(400, "You are not assigned to a team");
 
   const teammateIds = new Set(teammates.map((t) => t.id));
@@ -58,7 +65,9 @@ export async function submitEvaluation(userId: string, input: SubmissionInput) {
     throw new HttpError(400, "You must evaluate every teammate");
   }
 
-  const questions = await db.question.findMany({ where: { active: true } });
+  const questions = await db.question.findMany({
+    where: { courseId: round.courseId, active: true },
+  });
   const questionById = new Map(questions.map((q) => [q.id, q]));
 
   for (const evaluation of input.evaluations) {
@@ -111,7 +120,15 @@ export function getOwnSubmissions(userId: string) {
     where: { evaluatorId: userId },
     orderBy: { round: { sprint: "desc" } },
     include: {
-      round: { select: { id: true, name: true, sprint: true, status: true } },
+      round: {
+        select: {
+          id: true,
+          name: true,
+          sprint: true,
+          status: true,
+          course: { select: { id: true, code: true, term: true } },
+        },
+      },
       evaluations: {
         include: {
           evaluatee: { select: { id: true, name: true } },
@@ -123,11 +140,20 @@ export function getOwnSubmissions(userId: string) {
 }
 
 /** Professor-only: all submissions for a round including evaluator identity. */
-export function getRoundSubmissions(roundId: string) {
+export async function getRoundSubmissions(roundId: string) {
+  const round = await db.evaluationRound.findUnique({ where: { id: roundId } });
+  if (!round) throw new HttpError(404, "Round not found");
   return db.submission.findMany({
     where: { roundId },
     include: {
-      evaluator: { select: { id: true, name: true, email: true, membership: { select: { team: true } } } },
+      evaluator: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          memberships: { where: { courseId: round.courseId }, select: { team: true } },
+        },
+      },
       evaluations: {
         include: {
           evaluatee: { select: { id: true, name: true, email: true } },

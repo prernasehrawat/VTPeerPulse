@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api-client";
+import { useCourse } from "@/components/course-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,21 +26,22 @@ type Question = {
 
 export default function QuestionsPage() {
   const qc = useQueryClient();
+  const { course } = useCourse();
   const { data: questions, isLoading } = useQuery({
-    queryKey: ["questions"],
-    queryFn: () => api<Question[]>("/api/questions"),
+    queryKey: ["questions", course.id],
+    queryFn: () => api<Question[]>(`/api/questions?courseId=${course.id}`),
   });
   const [prompt, setPrompt] = useState("");
   const [type, setType] = useState<"RATING" | "TEXT">("RATING");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editPrompt, setEditPrompt] = useState("");
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["questions"] });
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["questions", course.id] });
   const onError = (e: Error) => toast.error(e.message);
 
   const create = useMutation({
     mutationFn: () =>
-      api("/api/questions", { method: "POST", body: JSON.stringify({ prompt, type }) }),
+      api(`/api/questions?courseId=${course.id}`, { method: "POST", body: JSON.stringify({ prompt, type }) }),
     onSuccess: () => {
       toast.success("Question added");
       setPrompt("");
@@ -50,7 +52,7 @@ export default function QuestionsPage() {
 
   const update = useMutation({
     mutationFn: ({ id, ...patch }: { id: string } & Partial<Question>) =>
-      api(`/api/questions/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+      api(`/api/questions/${id}?courseId=${course.id}`, { method: "PATCH", body: JSON.stringify(patch) }),
     onSuccess: () => {
       setEditingId(null);
       invalidate();
@@ -60,7 +62,7 @@ export default function QuestionsPage() {
 
   const remove = useMutation({
     mutationFn: (id: string) =>
-      api<{ deleted: boolean; deactivated: boolean }>(`/api/questions/${id}`, {
+      api<{ deleted: boolean; deactivated: boolean }>(`/api/questions/${id}?courseId=${course.id}`, {
         method: "DELETE",
       }),
     onSuccess: (r) => {
@@ -72,7 +74,7 @@ export default function QuestionsPage() {
 
   const reorder = useMutation({
     mutationFn: (orderedIds: string[]) =>
-      api("/api/questions/reorder", { method: "POST", body: JSON.stringify({ orderedIds }) }),
+      api(`/api/questions/reorder?courseId=${course.id}`, { method: "POST", body: JSON.stringify({ orderedIds }) }),
     onSuccess: invalidate,
     onError,
   });

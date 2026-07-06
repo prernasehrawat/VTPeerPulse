@@ -1,5 +1,24 @@
 import { z } from "zod";
 
+export const courseCreateSchema = z.object({
+  code: z.string().trim().min(2).max(50),
+  name: z.string().trim().min(2).max(200),
+  term: z.string().trim().min(2).max(50),
+});
+
+export const courseUpdateSchema = z.object({
+  code: z.string().trim().min(2).max(50).optional(),
+  name: z.string().trim().min(2).max(200).optional(),
+  term: z.string().trim().min(2).max(50).optional(),
+  active: z.boolean().optional(),
+});
+
+export const paginationSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(200).default(50),
+});
+export type Pagination = z.infer<typeof paginationSchema>;
+
 export const questionCreateSchema = z.object({
   prompt: z.string().trim().min(3).max(500),
   type: z.enum(["RATING", "TEXT"]).default("RATING"),
@@ -38,12 +57,12 @@ export const answerSchema = z.object({
 
 export const peerEvaluationSchema = z.object({
   evaluateeId: z.string().min(1),
-  answers: z.array(answerSchema).min(1),
+  answers: z.array(answerSchema).min(1).max(100),
 });
 
 export const submissionSchema = z.object({
   roundId: z.string().min(1),
-  evaluations: z.array(peerEvaluationSchema).min(1),
+  evaluations: z.array(peerEvaluationSchema).min(1).max(50),
 });
 
 export const thresholdsSchema = z.object({

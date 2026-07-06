@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api-client";
+import { useCourse } from "@/components/course-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,9 +33,10 @@ const STATUS_BADGE: Record<Round["status"], "default" | "secondary" | "outline">
 
 export default function RoundsPage() {
   const qc = useQueryClient();
+  const { course } = useCourse();
   const { data: rounds, isLoading } = useQuery({
-    queryKey: ["rounds"],
-    queryFn: () => api<Round[]>("/api/rounds"),
+    queryKey: ["rounds", course.id],
+    queryFn: () => api<Round[]>(`/api/rounds?courseId=${course.id}`),
   });
   const [name, setName] = useState("");
   const [sprint, setSprint] = useState("");
@@ -43,7 +45,7 @@ export default function RoundsPage() {
 
   const create = useMutation({
     mutationFn: () =>
-      api("/api/rounds", {
+      api(`/api/rounds?courseId=${course.id}`, {
         method: "POST",
         body: JSON.stringify({ name, sprint: Number(sprint) }),
       }),
@@ -58,7 +60,7 @@ export default function RoundsPage() {
 
   const setStatus = useMutation({
     mutationFn: ({ id, status }: { id: string; status: Round["status"] }) =>
-      api(`/api/rounds/${id}/status`, { method: "POST", body: JSON.stringify({ status }) }),
+      api(`/api/rounds/${id}/status?courseId=${course.id}`, { method: "POST", body: JSON.stringify({ status }) }),
     onSuccess: (_d, v) => {
       toast.success(v.status === "OPEN" ? "Round opened" : "Round closed — analytics generated");
       invalidate();
@@ -67,7 +69,7 @@ export default function RoundsPage() {
   });
 
   const remove = useMutation({
-    mutationFn: (id: string) => api(`/api/rounds/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) => api(`/api/rounds/${id}?courseId=${course.id}`, { method: "DELETE" }),
     onSuccess: () => {
       toast.success("Round deleted");
       invalidate();

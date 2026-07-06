@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
-import { apiHandler, requireProfessor } from "@/lib/guards";
+import { apiHandler, requireCourseInstructor, requireCourseParam } from "@/lib/guards";
+import { paginationSchema } from "@/lib/schemas";
 import { listAlerts } from "@/server/services/analytics";
 
 export const GET = apiHandler(async (req: Request) => {
-  await requireProfessor();
-  const includeResolved = new URL(req.url).searchParams.get("includeResolved") === "true";
-  return NextResponse.json(await listAlerts(includeResolved));
+  const courseId = requireCourseParam(req);
+  await requireCourseInstructor(courseId, true);
+  const url = new URL(req.url);
+  const includeResolved = url.searchParams.get("includeResolved") === "true";
+  const pagination = paginationSchema.parse(Object.fromEntries(url.searchParams));
+  return NextResponse.json(await listAlerts(courseId, pagination, includeResolved));
 });

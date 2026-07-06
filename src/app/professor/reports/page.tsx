@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api-client";
+import { useCourse } from "@/components/course-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,7 +18,11 @@ type Thresholds = { lowAverage: number; trendDrop: number; repeatedConcernRounds
 
 export default function ReportsPage() {
   const qc = useQueryClient();
-  const { data: rounds } = useQuery({ queryKey: ["rounds"], queryFn: () => api<Round[]>("/api/rounds") });
+  const { course } = useCourse();
+  const { data: rounds } = useQuery({
+    queryKey: ["rounds", course.id],
+    queryFn: () => api<Round[]>(`/api/rounds?courseId=${course.id}`),
+  });
   const { data: thresholds } = useQuery({
     queryKey: ["thresholds"],
     queryFn: () => api<Thresholds>("/api/settings/thresholds"),
@@ -63,7 +68,7 @@ export default function ReportsPage() {
           </div>
           <Button asChild variant="outline" disabled={!roundId}>
             <a
-              href={roundId ? `/api/reports/rounds/${roundId}?kind=analytics` : "#"}
+              href={roundId ? `/api/reports/rounds/${roundId}?kind=analytics&courseId=${course.id}` : "#"}
               aria-disabled={!roundId}
             >
               Analytics CSV
@@ -71,7 +76,7 @@ export default function ReportsPage() {
           </Button>
           <Button asChild variant="outline" disabled={!roundId}>
             <a
-              href={roundId ? `/api/reports/rounds/${roundId}?kind=responses` : "#"}
+              href={roundId ? `/api/reports/rounds/${roundId}?kind=responses&courseId=${course.id}` : "#"}
               aria-disabled={!roundId}
             >
               Full responses CSV

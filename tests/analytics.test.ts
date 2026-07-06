@@ -4,21 +4,23 @@ import {
   computeRoundAnalytics, computeTrends, generateRoundArtifacts, listAlerts, resolveAlert,
 } from "@/server/services/analytics";
 import { setThresholds } from "@/server/services/settings";
-import type { User, Question, EvaluationRound } from "@/generated/prisma/client";
+import type { User, Question, EvaluationRound, Course } from "@/generated/prisma/client";
 import {
-  createOpenRound, createQuestions, createTeamWithStudents, resetDb, submitFor,
+  createCourse, createOpenRound, createQuestions, createTeamWithStudents, PAGE1, resetDb, submitFor,
 } from "./helpers";
 
+let course: Course;
 let joe: User, peter: User, sarah: User;
 let rating: Question;
 let round: EvaluationRound;
 
 beforeEach(async () => {
   await resetDb();
-  const alpha = await createTeamWithStudents("Alpha", ["Joe", "Peter", "Sarah"]);
+  course = await createCourse();
+  const alpha = await createTeamWithStudents(course.id, "Alpha", ["Joe", "Peter", "Sarah"]);
   [joe, peter, sarah] = alpha.students as [User, User, User];
-  ({ rating } = await createQuestions());
-  round = await createOpenRound();
+  ({ rating } = await createQuestions(course.id));
+  round = await createOpenRound(course.id);
 });
 
 describe("computeRoundAnalytics", () => {
@@ -64,7 +66,7 @@ describe("alerts on round close", () => {
     await submitFor(peter.id, round.id, [joe.id, sarah.id], rating.id, 5);
 
     const { alertCount } = await generateRoundArtifacts(round.id);
-    const alerts = await listAlerts();
+    const { items: alerts } = await listAlerts(course.id, PAGE1);
     expect(alertCount).toBe(alerts.length);
 
     const types = alerts.map((a) => a.type);
@@ -80,8 +82,9 @@ describe("alerts on round close", () => {
     await submitFor(joe.id, round.id, [peter.id, sarah.id], rating.id, 2);
     await generateRoundArtifacts(round.id);
     await generateRoundArtifacts(round.id);
+    // Snapshots are replaced, never duplicated.
     const snapshots = await db.analyticsSnapshot.count({ where: { roundId: round.id } });
-    expect(snapshots).toBe(2);
+    expect(snapshots).toBe(1);
     // Alerts are recomputed, not duplicated.
     const missing = await db.alert.count({ where: { roundId: round.id, type: "MISSING_SUBMISSION" } });
     expect(missing).toBe(2); // Peter and Sarah didn't submit
@@ -97,7 +100,7 @@ describe("alerts on round close", () => {
 
     // Round 2: Peter drops to 1.
     const round2 = await db.evaluationRound.create({
-      data: { name: "Sprint 2", sprint: 2, status: "OPEN" },
+      data: { courseId: course.id, name: "Sprint 2", sprint: 2, status: "OPEN" },
     });
     await submitFor(joe.id, round2.id, [peter.id, sarah.id], rating.id, 1);
     await submitFor(sarah.id, round2.id, [joe.id, peter.id], rating.id, 1);
@@ -109,12 +112,14 @@ describe("alerts on round close", () => {
     expect(peterAlerts).toContain("REPEATED_CONCERN");
   });
 
-  it("resolveAlert marks alerts resolved", async () => {
+  it("resolveAlert marks alerts resolved and is course-scoped", async () => {
     await generateRoundArtifacts(round.id); // everyone missing
-    const alert = (await listAlerts())[0]!;
-    await resolveAlert(alert.id);
-    const open = await listAlerts();
-    expect(open.find((a) => a.id === alert.id)).toBeUndefined();
+    const alert = (await listAlerts(course.id, PAGE1)).items[0]!;
+    const other = await createCourse();
+    await expect(resolveAlert(alert.id, other.id)).rejects.toThrow("Alert not found");
+    await resolveAlert(alert.id, course.id);
+    const open = await listAlerts(course.id, PAGE1);
+    expect(open.items.find((a) => a.id === alert.id)).toBeUndefined();
   });
 });
 
@@ -122,11 +127,11 @@ describe("computeTrends", () => {
   it("returns points ordered by sprint with team and student series", async () => {
     await submitFor(joe.id, round.id, [peter.id, sarah.id], rating.id, 4);
     const round2 = await db.evaluationRound.create({
-      data: { name: "Sprint 2", sprint: 2, status: "OPEN" },
+      data: { courseId: course.id, name: "Sprint 2", sprint: 2, status: "OPEN" },
     });
     await submitFor(joe.id, round2.id, [peter.id, sarah.id], rating.id, 2);
 
-    const trends = await computeTrends();
+    const trends = await computeTrends(course.id);
     expect(trends.map((t) => t.sprint)).toEqual([1, 2]);
     expect(trends[0]?.teams.Alpha).toBe(4);
     expect(trends[1]?.teams.Alpha).toBe(2);

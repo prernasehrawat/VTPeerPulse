@@ -13,6 +13,8 @@ const LINKS = [
   { href: "/professor/alerts", label: "Alerts" },
   { href: "/professor/summaries", label: "AI Summaries" },
   { href: "/professor/reports", label: "Reports & Settings" },
+  { href: "/professor/courses", label: "Courses" },
+  { href: "/professor/audit", label: "Audit log" },
 ];
 
 export function ProfessorNav() {

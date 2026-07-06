@@ -1,6 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
@@ -11,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 
 const loginSchema = z.object({
   email: z.string().email("Enter your university email"),
@@ -18,7 +20,7 @@ const loginSchema = z.object({
 });
 type LoginInput = z.infer<typeof loginSchema>;
 
-export function LoginForm() {
+export function LoginForm({ sso }: { sso: { name: string } | null }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
@@ -46,6 +48,25 @@ export function LoginForm() {
         <CardDescription>Use your university email.</CardDescription>
       </CardHeader>
       <CardContent>
+        {sso && (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() =>
+                signIn("university", { callbackUrl: searchParams.get("callbackUrl") ?? "/" })
+              }
+            >
+              Sign in with {sso.name}
+            </Button>
+            <div className="my-4 flex items-center gap-3">
+              <Separator className="flex-1" />
+              <span className="text-xs uppercase text-muted-foreground">or</span>
+              <Separator className="flex-1" />
+            </div>
+          </>
+        )}
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           {error && (
             <Alert variant="destructive">
@@ -80,6 +101,11 @@ export function LoginForm() {
           <Button type="submit" className="w-full" disabled={isSubmitting}>
             {isSubmitting ? "Signing in…" : "Sign in"}
           </Button>
+          <p className="text-center text-sm">
+            <Link href="/forgot-password" className="text-muted-foreground underline">
+              Forgot your password?
+            </Link>
+          </p>
         </form>
       </CardContent>
     </Card>

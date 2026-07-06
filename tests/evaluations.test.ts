@@ -7,23 +7,25 @@ import {
   getTeammates,
   submitEvaluation,
 } from "@/server/services/evaluations";
-import type { User, Question, EvaluationRound } from "@/generated/prisma/client";
+import type { User, Question, EvaluationRound, Course } from "@/generated/prisma/client";
 import {
-  createOpenRound, createQuestions, createTeamWithStudents, resetDb, submitFor,
+  createCourse, createOpenRound, createQuestions, createTeamWithStudents, resetDb, submitFor,
 } from "./helpers";
 
+let course: Course;
 let joe: User, peter: User, sarah: User, outsider: User;
 let rating: Question, text: Question;
 let round: EvaluationRound;
 
 beforeEach(async () => {
   await resetDb();
-  const alpha = await createTeamWithStudents("Alpha", ["Joe", "Peter", "Sarah"]);
-  const beta = await createTeamWithStudents("Beta", ["Outsider"]);
+  course = await createCourse();
+  const alpha = await createTeamWithStudents(course.id, "Alpha", ["Joe", "Peter", "Sarah"]);
+  const beta = await createTeamWithStudents(course.id, "Beta", ["Outsider"]);
   [joe, peter, sarah] = alpha.students as [User, User, User];
   outsider = beta.students[0]!;
-  ({ rating, text } = await createQuestions());
-  round = await createOpenRound();
+  ({ rating, text } = await createQuestions(course.id));
+  round = await createOpenRound(course.id);
 });
 
 const answersFor = (evaluateeId: string, r = 4) => ({
@@ -36,7 +38,7 @@ const answersFor = (evaluateeId: string, r = 4) => ({
 
 describe("getTeammates", () => {
   it("returns team members excluding self", async () => {
-    const { team, teammates } = await getTeammates(joe.id);
+    const { team, teammates } = await getTeammates(joe.id, course.id);
     expect(team?.name).toBe("Alpha");
     expect(teammates.map((t) => t.name).sort()).toEqual(["Peter", "Sarah"]);
   });
@@ -45,7 +47,7 @@ describe("getTeammates", () => {
     const solo = await db.user.create({
       data: { email: "solo@vt.edu", name: "Solo", role: "STUDENT" },
     });
-    const { team, teammates } = await getTeammates(solo.id);
+    const { team, teammates } = await getTeammates(solo.id, course.id);
     expect(team).toBeNull();
     expect(teammates).toEqual([]);
   });
@@ -131,25 +133,41 @@ describe("submitEvaluation", () => {
     ).rejects.toThrow("Unknown or inactive question");
   });
 
-  it("throws 400 for students without a team", async () => {
+  it("throws 400 for enrolled students without a team", async () => {
     const solo = await db.user.create({
-      data: { email: "solo@vt.edu", name: "Solo", role: "STUDENT" },
+      data: {
+        email: "solo@vt.edu",
+        name: "Solo",
+        role: "STUDENT",
+        enrollments: { create: { courseId: course.id, role: "STUDENT" } },
+      },
     });
     await expect(
       submitEvaluation(solo.id, { roundId: round.id, evaluations: [answersFor(peter.id)] }),
     ).rejects.toThrowError(HttpError);
   });
+
+  it("rejects students who are not enrolled in the round's course", async () => {
+    const other = await createCourse();
+    const { students } = await createTeamWithStudents(other.id, "Other Team", ["Stranger S"]);
+    await expect(
+      submitEvaluation(students[0]!.id, {
+        roundId: round.id,
+        evaluations: [answersFor(peter.id)],
+      }),
+    ).rejects.toThrow("not enrolled in this course");
+  });
 });
 
 describe("student views", () => {
   it("getCurrentEvaluationContext reflects submission status", async () => {
-    let ctx = await getCurrentEvaluationContext(joe.id);
+    let ctx = await getCurrentEvaluationContext(joe.id, course.id);
     expect(ctx.round?.id).toBe(round.id);
     expect(ctx.submission).toBeNull();
     expect(ctx.questions.map((q) => q.id)).toEqual([rating.id, text.id]);
 
     await submitFor(joe.id, round.id, [peter.id, sarah.id], rating.id, 4);
-    ctx = await getCurrentEvaluationContext(joe.id);
+    ctx = await getCurrentEvaluationContext(joe.id, course.id);
     expect(ctx.submission).not.toBeNull();
   });
 

@@ -1,10 +1,10 @@
 import Papa from "papaparse";
-import { computeRoundAnalytics } from "./analytics";
+import { getRoundAnalytics } from "./analytics";
 import { getRoundSubmissions } from "./evaluations";
 
 /** CSV of per-student analytics for a round. */
 export async function roundAnalyticsCsv(roundId: string): Promise<{ filename: string; csv: string }> {
-  const a = await computeRoundAnalytics(roundId);
+  const a = await getRoundAnalytics(roundId);
   const csv = Papa.unparse(
     a.students.map((s) => ({
       Student: s.name,
@@ -26,7 +26,7 @@ export async function roundResponsesCsv(roundId: string): Promise<{ filename: st
       for (const ans of e.answers) {
         rows.push({
           Evaluator: s.evaluator.name,
-          "Evaluator Team": s.evaluator.membership?.team.name ?? "",
+          "Evaluator Team": s.evaluator.memberships[0]?.team.name ?? "",
           Evaluatee: e.evaluatee.name,
           Question: ans.question.prompt,
           Rating: ans.rating ?? "",

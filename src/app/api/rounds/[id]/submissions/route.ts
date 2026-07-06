@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
-import { apiHandler, requireProfessor } from "@/lib/guards";
+import { apiHandler, requireCourseInstructor, requireCourseParam } from "@/lib/guards";
 import { getRoundSubmissions } from "@/server/services/evaluations";
+import { getRoundInCourse } from "@/server/services/rounds";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export const GET = apiHandler(async (_req: Request, ctx: Ctx) => {
-  await requireProfessor();
+export const GET = apiHandler(async (req: Request, ctx: Ctx) => {
+  const courseId = requireCourseParam(req);
+  await requireCourseInstructor(courseId, true);
   const { id } = await ctx.params;
+  await getRoundInCourse(id, courseId);
   return NextResponse.json(await getRoundSubmissions(id));
 });

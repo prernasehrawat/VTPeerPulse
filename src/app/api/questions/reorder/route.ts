@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { apiHandler, parseBody, requireProfessor } from "@/lib/guards";
+import { apiHandler, parseBody, requireCourseInstructor, requireCourseParam } from "@/lib/guards";
 import { questionReorderSchema } from "@/lib/schemas";
 import { reorderQuestions } from "@/server/services/questions";
 
 export const POST = apiHandler(async (req: Request) => {
-  const user = await requireProfessor();
+  const courseId = requireCourseParam(req);
+  const user = await requireCourseInstructor(courseId);
   const input = await parseBody(req, questionReorderSchema);
-  const questions = await reorderQuestions(input, user.id);
+  const questions = await reorderQuestions(courseId, input, user.id);
   return NextResponse.json(questions);
 });

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api-client";
+import { useCourse } from "@/components/course-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 type Round = { id: string; name: string; sprint: number };
 type Team = { id: string; name: string };
 type Student = { id: string; name: string };
+type StudentPage = { items: Student[]; total: number };
 type Summary = {
   id: string;
   kind: string;
@@ -23,9 +25,12 @@ type Summary = {
   subjectId: string | null;
   content: string;
   model: string;
+  status: "DRAFT" | "RELEASED";
+  releasedAt: string | null;
   createdAt: string;
   round: { name: string; sprint: number };
 };
+type SummaryPage = { items: Summary[]; total: number; page: number; pageSize: number };
 
 const KINDS = [
   { value: "INSTRUCTOR", label: "Instructor briefing" },
@@ -35,17 +40,28 @@ const KINDS = [
   { value: "STUDENT_FEEDBACK", label: "Student-shareable feedback" },
 ];
 
+const PAGE_SIZE = 20;
+
 export default function SummariesPage() {
   const qc = useQueryClient();
-  const { data: rounds } = useQuery({ queryKey: ["rounds"], queryFn: () => api<Round[]>("/api/rounds") });
-  const { data: teams } = useQuery({ queryKey: ["teams"], queryFn: () => api<Team[]>("/api/teams") });
+  const { course } = useCourse();
+  const [page, setPage] = useState(1);
+  const { data: rounds } = useQuery({
+    queryKey: ["rounds", course.id],
+    queryFn: () => api<Round[]>(`/api/rounds?courseId=${course.id}`),
+  });
+  const { data: teams } = useQuery({
+    queryKey: ["teams", course.id],
+    queryFn: () => api<Team[]>(`/api/teams?courseId=${course.id}`),
+  });
   const { data: students } = useQuery({
-    queryKey: ["students"],
-    queryFn: () => api<Student[]>("/api/students"),
+    queryKey: ["students", course.id, "all"],
+    queryFn: () => api<StudentPage>(`/api/students?courseId=${course.id}&pageSize=200`),
   });
   const { data: summaries, isLoading } = useQuery({
-    queryKey: ["summaries"],
-    queryFn: () => api<Summary[]>("/api/summaries"),
+    queryKey: ["summaries", course.id, page],
+    queryFn: () =>
+      api<SummaryPage>(`/api/summaries?courseId=${course.id}&page=${page}&pageSize=${PAGE_SIZE}`),
   });
 
   const [roundId, setRoundId] = useState("");
@@ -55,7 +71,7 @@ export default function SummariesPage() {
 
   const generate = useMutation({
     mutationFn: () =>
-      api("/api/summaries", {
+      api(`/api/summaries?courseId=${course.id}`, {
         method: "POST",
         body: JSON.stringify({
           roundId,
@@ -71,7 +87,19 @@ export default function SummariesPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const subjectOptions = subjectType === "TEAM" ? teams : subjectType === "STUDENT" ? students : [];
+  const release = useMutation({
+    mutationFn: (id: string) =>
+      api(`/api/summaries/${id}/release?courseId=${course.id}`, { method: "POST" }),
+    onSuccess: () => {
+      toast.success("Released to student");
+      qc.invalidateQueries({ queryKey: ["summaries"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const subjectOptions =
+    subjectType === "TEAM" ? teams : subjectType === "STUDENT" ? students?.items : [];
+  const totalPages = summaries ? Math.max(1, Math.ceil(summaries.total / PAGE_SIZE)) : 1;
 
   return (
     <div className="space-y-6">
@@ -80,6 +108,7 @@ export default function SummariesPage() {
           <CardTitle className="text-base">Generate AI summary</CardTitle>
           <CardDescription>
             Summarizes written feedback from a round. Reviewer identities are never included.
+            Student-shareable feedback stays private until you release it.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -178,24 +207,71 @@ export default function SummariesPage() {
         <CardContent>
           {isLoading ? (
             <Skeleton className="h-40 w-full" />
-          ) : !summaries || summaries.length === 0 ? (
+          ) : !summaries || summaries.items.length === 0 ? (
             <p className="text-sm text-muted-foreground">No summaries generated yet.</p>
           ) : (
-            <ul className="space-y-4">
-              {summaries.map((s) => (
-                <li key={s.id} className="rounded-md border p-4">
-                  <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <Badge>{KINDS.find((k) => k.value === s.kind)?.label ?? s.kind}</Badge>
-                    <Badge variant="outline">{s.subjectType}</Badge>
-                    <span className="text-xs text-muted-foreground">
-                      {s.round.name} (Sprint {s.round.sprint}) · {s.model} ·{" "}
-                      {new Date(s.createdAt).toLocaleString()}
-                    </span>
-                  </div>
-                  <p className="whitespace-pre-wrap text-sm">{s.content}</p>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="space-y-4">
+                {summaries.items.map((s) => (
+                  <li key={s.id} className="rounded-md border p-4">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <Badge>{KINDS.find((k) => k.value === s.kind)?.label ?? s.kind}</Badge>
+                      <Badge variant="outline">{s.subjectType}</Badge>
+                      {s.kind === "STUDENT_FEEDBACK" &&
+                        (s.status === "RELEASED" ? (
+                          <Badge variant="secondary">
+                            Released {s.releasedAt ? new Date(s.releasedAt).toLocaleDateString() : ""}
+                          </Badge>
+                        ) : (
+                          <Badge variant="destructive">Not released</Badge>
+                        ))}
+                      <span className="text-xs text-muted-foreground">
+                        {s.round.name} (Sprint {s.round.sprint}) · {s.model} ·{" "}
+                        {new Date(s.createdAt).toLocaleString()}
+                      </span>
+                      {s.kind === "STUDENT_FEEDBACK" && s.status === "DRAFT" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="ml-auto"
+                          onClick={() => release.mutate(s.id)}
+                          disabled={release.isPending}
+                        >
+                          Release to student
+                        </Button>
+                      )}
+                    </div>
+                    <p className="whitespace-pre-wrap text-sm">{s.content}</p>
+                  </li>
+                ))}
+              </ul>
+              {totalPages > 1 && (
+                <nav
+                  aria-label="Summary pages"
+                  className="mt-4 flex items-center justify-end gap-2 text-sm"
+                >
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => p - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <span className="tabular-nums">
+                    Page {page} of {totalPages}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={page >= totalPages}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Next
+                  </Button>
+                </nav>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

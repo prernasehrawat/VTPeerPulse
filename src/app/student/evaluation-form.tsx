@@ -2,7 +2,7 @@
 
 import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
@@ -27,8 +27,31 @@ export function EvaluationForm({
   questions: Question[];
 }) {
   const router = useRouter();
-  const [state, setState] = useState<FormState>({});
+  const draftKey = `peerpulse-draft-${roundId}`;
+  // Restore an in-progress draft so an accidental refresh never loses answers.
+  const [state, setState] = useState<FormState>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = window.localStorage.getItem(draftKey);
+      return raw ? (JSON.parse(raw) as FormState) : {};
+    } catch {
+      return {};
+    }
+  });
   const [errors, setErrors] = useState<string[]>([]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        if (Object.keys(state).length > 0) {
+          window.localStorage.setItem(draftKey, JSON.stringify(state));
+        }
+      } catch {
+        // Storage full/unavailable — autosave is best-effort.
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [state, draftKey]);
 
   const setAnswer = (teammateId: string, questionId: string, patch: AnswerState) =>
     setState((s) => ({
@@ -58,6 +81,11 @@ export function EvaluationForm({
         }),
       }),
     onSuccess: () => {
+      try {
+        window.localStorage.removeItem(draftKey);
+      } catch {
+        // best-effort cleanup
+      }
       toast.success("Evaluation submitted. Thank you!");
       router.refresh();
     },
@@ -155,7 +183,8 @@ export function EvaluationForm({
 
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Submissions are final — review your answers before submitting.
+          Submissions are final — review your answers before submitting. Your progress is saved in
+          this browser as you type.
         </p>
         <Button type="submit" disabled={mutation.isPending}>
           {mutation.isPending ? "Submitting…" : "Submit evaluation"}

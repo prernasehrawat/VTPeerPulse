@@ -12,6 +12,22 @@ enum Role {
   PROFESSOR
 }
 
+enum CourseRole {
+  STUDENT
+  INSTRUCTOR
+  TA
+}
+
+enum TokenPurpose {
+  INVITE
+  PASSWORD_RESET
+}
+
+enum SummaryStatus {
+  DRAFT
+  RELEASED
+}
+
 enum RoundStatus {
   DRAFT
   OPEN
@@ -57,7 +73,9 @@ model User {
   role                Role             @default(STUDENT)
   passwordHash        String?
   active              Boolean          @default(true)
-  membership          TeamMembership?
+  enrollments         CourseEnrollment[]
+  memberships         TeamMembership[]
+  authTokens          AuthToken[]
   submissions         Submission[]
   evaluationsReceived PeerEvaluation[] @relation("evaluatee")
   alerts              Alert[]
@@ -69,28 +87,70 @@ model User {
   @@index([role])
 }
 
+/// A course offering in a specific term. All rosters, teams, questions,
+/// and rounds are scoped to a course.
+model Course {
+  id          String             @id @default(cuid())
+  code        String
+  name        String
+  term        String
+  active      Boolean            @default(true)
+  enrollments CourseEnrollment[]
+  teams       Team[]
+  memberships TeamMembership[]
+  questions   Question[]
+  rounds      EvaluationRound[]
+  alerts      Alert[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@unique([code, term])
+}
+
+model CourseEnrollment {
+  id        String     @id @default(cuid())
+  courseId  String
+  userId    String
+  role      CourseRole @default(STUDENT)
+  course    Course     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
+
+  @@unique([courseId, userId])
+  @@index([userId])
+}
+
 model Team {
   id          String           @id @default(cuid())
-  name        String           @unique
+  courseId    String
+  course      Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  name        String
   memberships TeamMembership[]
   alerts      Alert[]
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
+
+  @@unique([courseId, name])
 }
 
 model TeamMembership {
   id        String   @id @default(cuid())
-  userId    String   @unique
+  userId    String
   teamId    String
+  courseId  String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 
+  @@unique([userId, courseId])
   @@index([teamId])
 }
 
 model EvaluationRound {
   id          String              @id @default(cuid())
+  courseId    String
+  course      Course              @relation(fields: [courseId], references: [id], onDelete: Cascade)
   name        String
   sprint      Int
   status      RoundStatus         @default(DRAFT)
@@ -103,11 +163,13 @@ model EvaluationRound {
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
 
-  @@unique([sprint])
+  @@unique([courseId, sprint])
 }
 
 model Question {
   id        String       @id @default(cuid())
+  courseId  String
+  course    Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
   prompt    String
   type      QuestionType @default(RATING)
   required  Boolean      @default(true)
@@ -117,7 +179,7 @@ model Question {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
-  @@index([active, order])
+  @@index([courseId, active, order])
 }
 
 /// One per (round, evaluator). Locks all peer evaluations when submitted.
@@ -178,6 +240,8 @@ model AISummary {
   kind        SummaryKind
   content     String
   model       String
+  status      SummaryStatus   @default(DRAFT)
+  releasedAt  DateTime?
   createdAt   DateTime        @default(now())
 
   @@index([roundId, subjectType, subjectId])
@@ -185,6 +249,8 @@ model AISummary {
 
 model Alert {
   id        String           @id @default(cuid())
+  courseId  String
+  course    Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
   roundId   String?
   round     EvaluationRound? @relation(fields: [roundId], references: [id], onDelete: Cascade)
   type      AlertType
@@ -197,6 +263,7 @@ model Alert {
   resolved  Boolean          @default(false)
   createdAt DateTime         @default(now())
 
+  @@index([courseId, resolved])
   @@index([roundId, resolved])
 }
 
@@ -230,4 +297,34 @@ model Setting {
   key       String   @id
   value     Json
   updatedAt DateTime @updatedAt
+}
+
+/// One-time tokens for account invites and password resets. Only a hash is stored.
+model AuthToken {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String       @unique
+  purpose   TokenPurpose
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime     @default(now())
+
+  @@index([userId, purpose])
+}
+
+/// Minimal DB-backed job queue polled by the in-process scheduler.
+model Job {
+  id          String    @id @default(cuid())
+  type        String
+  payload     Json?
+  runAt       DateTime
+  startedAt   DateTime?
+  completedAt DateTime?
+  failedAt    DateTime?
+  attempts    Int       @default(0)
+  lastError   String?
+  createdAt   DateTime  @default(now())
+
+  @@index([completedAt, runAt])
 }
