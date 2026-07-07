@@ -94,6 +94,7 @@ model Course {
   code        String
   name        String
   term        String
+  timezone    String             @default("America/New_York")
   active      Boolean            @default(true)
   enrollments CourseEnrollment[]
   teams       Team[]
@@ -260,6 +261,9 @@ model Alert {
   teamId    String?
   team      Team?            @relation(fields: [teamId], references: [id], onDelete: Cascade)
   message   String
+  /// Structured alert data (value, threshold, previous) so UIs can re-render
+  /// or localize without parsing the message string.
+  meta      Json?
   resolved  Boolean          @default(false)
   createdAt DateTime         @default(now())
 

@@ -1,15 +1,29 @@
 import { z } from "zod";
 
+const timezoneSchema = z
+  .string()
+  .trim()
+  .refine((tz) => {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: tz });
+      return true;
+    } catch {
+      return false;
+    }
+  }, "Unknown IANA timezone");
+
 export const courseCreateSchema = z.object({
   code: z.string().trim().min(2).max(50),
   name: z.string().trim().min(2).max(200),
   term: z.string().trim().min(2).max(50),
+  timezone: timezoneSchema.default("America/New_York"),
 });
 
 export const courseUpdateSchema = z.object({
   code: z.string().trim().min(2).max(50).optional(),
   name: z.string().trim().min(2).max(200).optional(),
   term: z.string().trim().min(2).max(50).optional(),
+  timezone: timezoneSchema.optional(),
   active: z.boolean().optional(),
 });
 

@@ -24,8 +24,8 @@ export default function ReportsPage() {
     queryFn: () => api<Round[]>(`/api/rounds?courseId=${course.id}`),
   });
   const { data: thresholds } = useQuery({
-    queryKey: ["thresholds"],
-    queryFn: () => api<Thresholds>("/api/settings/thresholds"),
+    queryKey: ["thresholds", course.id],
+    queryFn: () => api<Thresholds>(`/api/settings/thresholds?courseId=${course.id}`),
   });
 
   const [roundId, setRoundId] = useState("");
@@ -35,7 +35,10 @@ export default function ReportsPage() {
 
   const save = useMutation({
     mutationFn: (t: Thresholds) =>
-      api("/api/settings/thresholds", { method: "PUT", body: JSON.stringify(t) }),
+      api(`/api/settings/thresholds?courseId=${course.id}`, {
+        method: "PUT",
+        body: JSON.stringify(t),
+      }),
     onSuccess: () => {
       toast.success("Thresholds saved");
       qc.invalidateQueries({ queryKey: ["thresholds"] });
@@ -89,7 +92,8 @@ export default function ReportsPage() {
         <CardHeader>
           <CardTitle className="text-base">Alert thresholds</CardTitle>
           <CardDescription>
-            Used when a round closes to flag low averages, downward trends, and repeated concerns.
+            Per-course. Used when a round closes to flag low averages, downward trends, and
+            repeated concerns.
           </CardDescription>
         </CardHeader>
         <CardContent>

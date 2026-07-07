@@ -39,7 +39,11 @@ export async function notifyRoundOpened(roundId: string) {
     include: { user: { select: { id: true, email: true, name: true } } },
   });
   const deadline = round.closesAt
-    ? ` It closes on ${round.closesAt.toLocaleDateString("en-US", { dateStyle: "long" })}.`
+    ? ` It closes on ${round.closesAt.toLocaleString("en-US", {
+        dateStyle: "long",
+        timeStyle: "short",
+        timeZone: round.course.timezone,
+      })}.`
     : "";
   await notify(
     enrollments.map((e) => e.user),
@@ -73,7 +77,11 @@ export async function notifyRoundReminder(roundId: string) {
   });
   const pending = enrollments.filter((e) => !submitted.has(e.userId)).map((e) => e.user);
   const deadline = round.closesAt
-    ? ` before it closes on ${round.closesAt.toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" })}`
+    ? ` before it closes on ${round.closesAt.toLocaleString("en-US", {
+        dateStyle: "long",
+        timeStyle: "short",
+        timeZone: round.course.timezone,
+      })}`
     : "";
   await notify(
     pending,

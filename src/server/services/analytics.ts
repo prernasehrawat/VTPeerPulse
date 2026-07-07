@@ -208,8 +208,8 @@ export async function computeTrends(courseId: string): Promise<TrendPoint[]> {
 /** Snapshots analytics and (re)generates alerts for a round. Called on round close. */
 export async function generateRoundArtifacts(roundId: string) {
   const analytics = await computeRoundAnalytics(roundId);
-  const thresholds = await getThresholds();
   const courseId = analytics.courseId;
+  const thresholds = await getThresholds(courseId);
 
   // Replace (not append) the snapshot so re-closing a reopened round can't
   // leave duplicates.
@@ -237,6 +237,7 @@ export async function generateRoundArtifacts(roundId: string) {
         userId: s.userId,
         teamId: s.teamId,
         message: `${s.name} did not submit an evaluation for ${analytics.roundName}.`,
+        meta: { kind: "missing" },
       });
     }
     if (s.average !== null && s.average < thresholds.lowAverage) {
@@ -248,6 +249,7 @@ export async function generateRoundArtifacts(roundId: string) {
         userId: s.userId,
         teamId: s.teamId,
         message: `${s.name} received an average of ${s.average} (threshold ${thresholds.lowAverage}).`,
+        meta: { value: s.average, threshold: thresholds.lowAverage },
       });
     }
   }
@@ -261,6 +263,7 @@ export async function generateRoundArtifacts(roundId: string) {
         severity: "WARNING",
         teamId: t.teamId,
         message: `Team ${t.name} average is ${t.average} (threshold ${thresholds.lowAverage}).`,
+        meta: { value: t.average, threshold: thresholds.lowAverage },
       });
     }
   }
@@ -282,6 +285,7 @@ export async function generateRoundArtifacts(roundId: string) {
           userId: s.userId,
           teamId: s.teamId ?? undefined,
           message: `${s.name}'s average dropped from ${before} to ${now}.`,
+          meta: { value: now, previous: before, threshold: thresholds.trendDrop },
         });
       }
     }
@@ -303,6 +307,7 @@ export async function generateRoundArtifacts(roundId: string) {
             userId: s.userId,
             teamId: s.teamId ?? undefined,
             message: `${s.name} has been below the ${thresholds.lowAverage} threshold for ${windowSize} consecutive rounds.`,
+            meta: { threshold: thresholds.lowAverage, consecutiveRounds: windowSize },
           });
         }
       }

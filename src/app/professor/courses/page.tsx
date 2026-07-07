@@ -11,6 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -35,12 +38,16 @@ export default function CoursesPage() {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [term, setTerm] = useState("");
+  const [timezone, setTimezone] = useState("America/New_York");
+  const [staffCourseId, setStaffCourseId] = useState("");
+  const [staffEmail, setStaffEmail] = useState("");
+  const [staffRole, setStaffRole] = useState<"TA" | "INSTRUCTOR">("TA");
 
   const create = useMutation({
     mutationFn: () =>
       api<Course>("/api/courses", {
         method: "POST",
-        body: JSON.stringify({ code, name, term }),
+        body: JSON.stringify({ code, name, term, timezone }),
       }),
     onSuccess: (course) => {
       toast.success("Course created");
@@ -50,6 +57,22 @@ export default function CoursesPage() {
       document.cookie = `${COURSE_COOKIE}=${encodeURIComponent(course.id)}; path=/; max-age=31536000; samesite=lax`;
       qc.invalidateQueries({ queryKey: ["courses"] });
       router.refresh();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const addStaff = useMutation({
+    mutationFn: () =>
+      api<{ created: boolean }>(`/api/courses/${staffCourseId}/staff`, {
+        method: "POST",
+        body: JSON.stringify({ email: staffEmail, role: staffRole }),
+      }),
+    onSuccess: (r) => {
+      toast.success(
+        r.created ? "Staff account created and invited by email" : "Added to course staff",
+      );
+      setStaffEmail("");
+      qc.invalidateQueries({ queryKey: ["courses"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -113,8 +136,84 @@ export default function CoursesPage() {
                 className="w-36"
               />
             </div>
+            <div className="space-y-1">
+              <Label htmlFor="c-tz">Timezone</Label>
+              <Input
+                id="c-tz"
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value)}
+                placeholder="America/New_York"
+                required
+                className="w-48"
+              />
+            </div>
             <Button type="submit" disabled={create.isPending}>
               Create
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Add course staff</CardTitle>
+          <CardDescription>
+            Give a co-instructor or TA access to one of your courses. New staff accounts receive
+            an email invite to set their password.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form
+            className="flex flex-wrap items-end gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!staffCourseId) {
+                toast.error("Choose a course");
+                return;
+              }
+              addStaff.mutate();
+            }}
+          >
+            <div className="space-y-1">
+              <Label>Course</Label>
+              <Select value={staffCourseId || undefined} onValueChange={setStaffCourseId}>
+                <SelectTrigger className="w-56">
+                  <SelectValue placeholder="Choose course" />
+                </SelectTrigger>
+                <SelectContent>
+                  {courses?.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.code} · {c.term}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="min-w-64 flex-1 space-y-1">
+              <Label htmlFor="staff-email">Email</Label>
+              <Input
+                id="staff-email"
+                type="email"
+                value={staffEmail}
+                onChange={(e) => setStaffEmail(e.target.value)}
+                placeholder="ta@vt.edu"
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Role</Label>
+              <Select value={staffRole} onValueChange={(v) => setStaffRole(v as "TA" | "INSTRUCTOR")}>
+                <SelectTrigger className="w-36">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="TA">TA</SelectItem>
+                  <SelectItem value="INSTRUCTOR">Co-instructor</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button type="submit" disabled={addStaff.isPending}>
+              {addStaff.isPending ? "Adding…" : "Add staff"}
             </Button>
           </form>
         </CardContent>

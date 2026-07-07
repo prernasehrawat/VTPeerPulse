@@ -48,6 +48,18 @@ Migrations run automatically (the `migrate` service) before the app starts.
 | Rate-limit lockout (429s) | In-memory windows reset on app restart: `docker compose restart app`. |
 | Rotate AUTH_SECRET | Update env + restart; all sessions are invalidated (users re-login). |
 
+## Pre-launch checks
+
+- **AI evaluation:** `npx tsx scripts/ai-eval.ts` — validates prompt hygiene,
+  injection resistance, and roster-name scrubbing through the real service
+  path. Run it **with a real `AI_API_KEY`** and review the output before
+  enabling summaries for a real course; it exits non-zero on any failure.
+- **Load test:** `STUDENTS=300 CONCURRENCY=40 npx tsx scripts/load-test.ts` —
+  simulates a whole course logging in and submitting at a deadline via the
+  real HTTP auth flow, then a professor reading analytics. Reference numbers
+  (dev mode, laptop): 300/300 submissions, 0 errors, submit p95 ≈ 380 ms.
+  Run it against staging with production-like sizing before each term.
+
 ## Incident basics
 
 1. `docker compose -f docker-compose.prod.yml ps` — is anything restarting?

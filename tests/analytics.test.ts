@@ -61,7 +61,7 @@ describe("computeRoundAnalytics", () => {
 
 describe("alerts on round close", () => {
   it("flags low averages and missing submissions", async () => {
-    await setThresholds({ lowAverage: 3, trendDrop: 0.5, repeatedConcernRounds: 2 });
+    await setThresholds(course.id, { lowAverage: 3, trendDrop: 0.5, repeatedConcernRounds: 2 });
     await submitFor(joe.id, round.id, [peter.id, sarah.id], rating.id, 1);
     await submitFor(peter.id, round.id, [joe.id, sarah.id], rating.id, 5);
 
@@ -91,7 +91,7 @@ describe("alerts on round close", () => {
   });
 
   it("flags downward trends and repeated concerns across rounds", async () => {
-    await setThresholds({ lowAverage: 3, trendDrop: 0.5, repeatedConcernRounds: 2 });
+    await setThresholds(course.id, { lowAverage: 3, trendDrop: 0.5, repeatedConcernRounds: 2 });
 
     // Round 1: Peter averages 2.
     await submitFor(joe.id, round.id, [peter.id, sarah.id], rating.id, 2);
