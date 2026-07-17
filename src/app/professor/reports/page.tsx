@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api-client";
+import { useCourse } from "@/components/course-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,10 +18,14 @@ type Thresholds = { lowAverage: number; trendDrop: number; repeatedConcernRounds
 
 export default function ReportsPage() {
   const qc = useQueryClient();
-  const { data: rounds } = useQuery({ queryKey: ["rounds"], queryFn: () => api<Round[]>("/api/rounds") });
+  const { course } = useCourse();
+  const { data: rounds } = useQuery({
+    queryKey: ["rounds", course.id],
+    queryFn: () => api<Round[]>(`/api/rounds?courseId=${course.id}`),
+  });
   const { data: thresholds } = useQuery({
-    queryKey: ["thresholds"],
-    queryFn: () => api<Thresholds>("/api/settings/thresholds"),
+    queryKey: ["thresholds", course.id],
+    queryFn: () => api<Thresholds>(`/api/settings/thresholds?courseId=${course.id}`),
   });
 
   const [roundId, setRoundId] = useState("");
@@ -30,7 +35,10 @@ export default function ReportsPage() {
 
   const save = useMutation({
     mutationFn: (t: Thresholds) =>
-      api("/api/settings/thresholds", { method: "PUT", body: JSON.stringify(t) }),
+      api(`/api/settings/thresholds?courseId=${course.id}`, {
+        method: "PUT",
+        body: JSON.stringify(t),
+      }),
     onSuccess: () => {
       toast.success("Thresholds saved");
       qc.invalidateQueries({ queryKey: ["thresholds"] });
@@ -63,7 +71,7 @@ export default function ReportsPage() {
           </div>
           <Button asChild variant="outline" disabled={!roundId}>
             <a
-              href={roundId ? `/api/reports/rounds/${roundId}?kind=analytics` : "#"}
+              href={roundId ? `/api/reports/rounds/${roundId}?kind=analytics&courseId=${course.id}` : "#"}
               aria-disabled={!roundId}
             >
               Analytics CSV
@@ -71,7 +79,7 @@ export default function ReportsPage() {
           </Button>
           <Button asChild variant="outline" disabled={!roundId}>
             <a
-              href={roundId ? `/api/reports/rounds/${roundId}?kind=responses` : "#"}
+              href={roundId ? `/api/reports/rounds/${roundId}?kind=responses&courseId=${course.id}` : "#"}
               aria-disabled={!roundId}
             >
               Full responses CSV
@@ -84,7 +92,8 @@ export default function ReportsPage() {
         <CardHeader>
           <CardTitle className="text-base">Alert thresholds</CardTitle>
           <CardDescription>
-            Used when a round closes to flag low averages, downward trends, and repeated concerns.
+            Per-course. Used when a round closes to flag low averages, downward trends, and
+            repeated concerns.
           </CardDescription>
         </CardHeader>
         <CardContent>

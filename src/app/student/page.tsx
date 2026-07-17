@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { resolveCourses } from "@/server/course-resolution";
 import { getCurrentEvaluationContext } from "@/server/services/evaluations";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -9,14 +10,16 @@ export const dynamic = "force-dynamic";
 
 export default async function StudentDashboard() {
   const session = await auth();
-  const ctx = await getCurrentEvaluationContext(session!.user.id);
+  const { active } = await resolveCourses(session!.user.id, "STUDENT");
+  if (!active) return null; // layout already shows the "no enrollment" message
+  const ctx = await getCurrentEvaluationContext(session!.user.id, active.id);
 
   if (!ctx.team) {
     return (
       <Alert>
         <AlertTitle>No team assigned</AlertTitle>
         <AlertDescription>
-          You have not been assigned to a team yet. Contact your instructor.
+          You have not been assigned to a team in {active.code} yet. Contact your instructor.
         </AlertDescription>
       </Alert>
     );
@@ -28,8 +31,8 @@ export default async function StudentDashboard() {
         <CardHeader>
           <CardTitle>No active evaluation round</CardTitle>
           <CardDescription>
-            You are on team <strong>{ctx.team.name}</strong>. Check back when your instructor opens
-            the next round.
+            You are on team <strong>{ctx.team.name}</strong> in {active.code}. Check back when your
+            instructor opens the next round.
           </CardDescription>
         </CardHeader>
       </Card>

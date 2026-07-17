@@ -28,9 +28,12 @@ export default async function HistoryPage() {
       {submissions.map((s) => (
         <Card key={s.id}>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
+            <CardTitle className="flex flex-wrap items-center gap-2 text-base">
               {s.round.name}
               <Badge variant="secondary">Sprint {s.round.sprint}</Badge>
+              <Badge variant="outline">
+                {s.round.course.code} · {s.round.course.term}
+              </Badge>
             </CardTitle>
             <CardDescription>
               Submitted {new Date(s.submittedAt).toLocaleString()}

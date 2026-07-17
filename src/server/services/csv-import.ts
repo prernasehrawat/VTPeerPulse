@@ -2,6 +2,8 @@ import Papa from "papaparse";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { allowedEmailDomains } from "@/lib/env";
+import { HttpError } from "@/lib/errors";
+import { logger } from "@/lib/logger";
 import { audit } from "./audit";
 
 const rowSchema = z.object({
@@ -12,9 +14,11 @@ const rowSchema = z.object({
 
 export type CsvRowError = { row: number; message: string };
 export type ImportResult = {
+  dryRun: boolean;
   created: number;
   updated: number;
   teamsCreated: number;
+  invitesSent: number;
   errors: CsvRowError[];
 };
 
@@ -84,26 +88,63 @@ export function parseRosterCsv(csv: string): { rows: ParsedRow[]; errors: CsvRow
   return { rows, errors };
 }
 
-/** Imports a roster CSV: upserts users, creates teams, reassigns memberships. */
-export async function importRoster(csv: string, actorId: string): Promise<ImportResult> {
+/**
+ * Imports a roster CSV into a course: upserts users, creates teams, enrolls
+ * students, reassigns memberships.
+ *
+ * With `dryRun` the CSV is validated and the outcome is computed without
+ * writing anything — used for the import preview step.
+ * New accounts that can't log in yet get an invite email (unless disabled).
+ */
+export async function importRoster(
+  courseId: string,
+  csv: string,
+  actorId: string,
+  options: { dryRun?: boolean; sendInvites?: boolean } = {},
+): Promise<ImportResult> {
+  const { dryRun = false, sendInvites = true } = options;
+  const course = await db.course.findUnique({ where: { id: courseId } });
+  if (!course) throw new HttpError(404, "Course not found");
+
   const { rows, errors } = parseRosterCsv(csv);
   if (rows.length === 0) {
-    return { created: 0, updated: 0, teamsCreated: 0, errors };
+    return { dryRun, created: 0, updated: 0, teamsCreated: 0, invitesSent: 0, errors };
+  }
+
+  if (dryRun) {
+    const emails = rows.map((r) => r.email);
+    const teamNames = [...new Set(rows.map((r) => r.team))];
+    const [existingUsers, existingTeams] = await Promise.all([
+      db.user.findMany({ where: { email: { in: emails } }, select: { email: true } }),
+      db.team.findMany({ where: { courseId, name: { in: teamNames } }, select: { name: true } }),
+    ]);
+    const existingEmailSet = new Set(existingUsers.map((u) => u.email));
+    return {
+      dryRun: true,
+      created: rows.filter((r) => !existingEmailSet.has(r.email)).length,
+      updated: rows.filter((r) => existingEmailSet.has(r.email)).length,
+      teamsCreated: teamNames.length - existingTeams.length,
+      invitesSent: 0,
+      errors,
+    };
   }
 
   let created = 0;
   let updated = 0;
   let teamsCreated = 0;
+  const newUserIds: string[] = [];
 
   await db.$transaction(async (tx) => {
     const teamNames = [...new Set(rows.map((r) => r.team))];
     const teamIds = new Map<string, string>();
     for (const name of teamNames) {
-      const existing = await tx.team.findUnique({ where: { name } });
+      const existing = await tx.team.findUnique({
+        where: { courseId_name: { courseId, name } },
+      });
       if (existing) {
         teamIds.set(name, existing.id);
       } else {
-        const team = await tx.team.create({ data: { name } });
+        const team = await tx.team.create({ data: { courseId, name } });
         teamIds.set(name, team.id);
         teamsCreated++;
       }
@@ -118,27 +159,49 @@ export async function importRoster(csv: string, actorId: string): Promise<Import
         await tx.user.update({ where: { id: existing.id }, data: { name: row.name, active: true } });
         userId = existing.id;
         updated++;
+        if (!existing.passwordHash) newUserIds.push(userId);
       } else {
         const user = await tx.user.create({
           data: { email: row.email, name: row.name, role: "STUDENT" },
         });
         userId = user.id;
         created++;
+        newUserIds.push(userId);
       }
+      await tx.courseEnrollment.upsert({
+        where: { courseId_userId: { courseId, userId } },
+        create: { courseId, userId, role: "STUDENT" },
+        update: {},
+      });
       await tx.teamMembership.upsert({
-        where: { userId },
-        create: { userId, teamId },
+        where: { userId_courseId: { userId, courseId } },
+        create: { userId, teamId, courseId },
         update: { teamId },
       });
     }
   });
 
-  await audit(actorId, "roster.import", "Team", undefined, {
+  // Invites go out after the transaction commits; a mail failure must not
+  // roll back the roster.
+  let invitesSent = 0;
+  if (sendInvites && newUserIds.length > 0) {
+    const { sendInvite } = await import("./accounts");
+    for (const userId of newUserIds) {
+      try {
+        if (await sendInvite(userId)) invitesSent++;
+      } catch (err) {
+        logger.error({ err, userId }, "invite email failed during roster import");
+      }
+    }
+  }
+
+  await audit(actorId, "roster.import", "Course", courseId, {
     created,
     updated,
     teamsCreated,
+    invitesSent,
     errorCount: errors.length,
   });
 
-  return { created, updated, teamsCreated, errors };
+  return { dryRun: false, created, updated, teamsCreated, invitesSent, errors };
 }

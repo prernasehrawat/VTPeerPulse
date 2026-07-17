@@ -2,7 +2,7 @@
 
 import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
@@ -27,8 +27,56 @@ export function EvaluationForm({
   questions: Question[];
 }) {
   const router = useRouter();
-  const [state, setState] = useState<FormState>({});
+  const draftKey = `peerpulse-draft-${roundId}`;
+  // Restore an in-progress draft so an accidental refresh never loses answers.
+  // localStorage is the instant, offline-safe source; the server draft (loaded
+  // below) is what lets a student resume on a different device.
+  const [state, setState] = useState<FormState>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = window.localStorage.getItem(draftKey);
+      return raw ? (JSON.parse(raw) as FormState) : {};
+    } catch {
+      return {};
+    }
+  });
   const [errors, setErrors] = useState<string[]>([]);
+
+  // Hydrate from the server draft, but never clobber in-progress local answers:
+  // if this browser already has a draft it is at least as fresh, so it wins.
+  useEffect(() => {
+    let cancelled = false;
+    api<{ data?: FormState } | null>(`/api/evaluations/draft?roundId=${roundId}`)
+      .then((res) => {
+        const serverData = res?.data;
+        if (cancelled || !serverData || Object.keys(serverData).length === 0) return;
+        setState((local) => (Object.keys(local).length > 0 ? local : serverData));
+      })
+      .catch(() => {
+        // Offline or unauthenticated — the localStorage draft still stands.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [roundId]);
+
+  useEffect(() => {
+    if (Object.keys(state).length === 0) return;
+    const timer = setTimeout(() => {
+      try {
+        window.localStorage.setItem(draftKey, JSON.stringify(state));
+      } catch {
+        // Storage full/unavailable — autosave is best-effort.
+      }
+      // Persist server-side so the draft survives across devices. Best-effort:
+      // a failed sync leaves the localStorage copy intact.
+      api(`/api/evaluations/draft`, {
+        method: "PUT",
+        body: JSON.stringify({ roundId, data: state }),
+      }).catch(() => {});
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [state, draftKey, roundId]);
 
   const setAnswer = (teammateId: string, questionId: string, patch: AnswerState) =>
     setState((s) => ({
@@ -58,6 +106,11 @@ export function EvaluationForm({
         }),
       }),
     onSuccess: () => {
+      try {
+        window.localStorage.removeItem(draftKey);
+      } catch {
+        // best-effort cleanup
+      }
       toast.success("Evaluation submitted. Thank you!");
       router.refresh();
     },
@@ -155,7 +208,8 @@ export function EvaluationForm({
 
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Submissions are final — review your answers before submitting.
+          Submissions are final — review your answers before submitting. Your progress is saved
+          automatically as you type and syncs across your devices.
         </p>
         <Button type="submit" disabled={mutation.isPending}>
           {mutation.isPending ? "Submitting…" : "Submit evaluation"}

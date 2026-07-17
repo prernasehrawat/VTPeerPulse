@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "@/lib/api-client";
+import { useCourse } from "@/components/course-context";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -55,21 +56,22 @@ export type TrendPoint = {
 };
 
 export default function AnalyticsPage() {
+  const { course } = useCourse();
   const { data: rounds } = useQuery({
-    queryKey: ["rounds"],
-    queryFn: () => api<Round[]>("/api/rounds"),
+    queryKey: ["rounds", course.id],
+    queryFn: () => api<Round[]>(`/api/rounds?courseId=${course.id}`),
   });
   const [roundId, setRoundId] = useState<string | null>(null);
   const selectedId = roundId ?? rounds?.[0]?.id ?? null;
 
   const { data: analytics, isLoading } = useQuery({
-    queryKey: ["analytics", selectedId],
-    queryFn: () => api<Analytics>(`/api/analytics/rounds/${selectedId}`),
+    queryKey: ["analytics", course.id, selectedId],
+    queryFn: () => api<Analytics>(`/api/analytics/rounds/${selectedId}?courseId=${course.id}`),
     enabled: !!selectedId,
   });
   const { data: trends } = useQuery({
-    queryKey: ["trends"],
-    queryFn: () => api<TrendPoint[]>("/api/analytics/trends"),
+    queryKey: ["trends", course.id],
+    queryFn: () => api<TrendPoint[]>(`/api/analytics/trends?courseId=${course.id}`),
   });
 
   if (!rounds) return <Skeleton className="h-64 w-full" />;

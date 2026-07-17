@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { HttpError } from "@/lib/errors";
+import type { Pagination } from "@/lib/schemas";
 import { getThresholds } from "./settings";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -34,6 +35,7 @@ export type RoundAnalytics = {
   roundId: string;
   roundName: string;
   sprint: number;
+  courseId: string;
   overallAverage: number | null;
   totalStudents: number;
   submittedCount: number;
@@ -46,14 +48,24 @@ export type RoundAnalytics = {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const avg = (xs: number[]) => (xs.length === 0 ? null : round2(xs.reduce((a, b) => a + b, 0) / xs.length));
 
+/** Live computation over the round's answers and the course's current roster. */
 export async function computeRoundAnalytics(roundId: string): Promise<RoundAnalytics> {
   const round = await db.evaluationRound.findUnique({ where: { id: roundId } });
   if (!round) throw new HttpError(404, "Round not found");
+  const { courseId } = round;
 
-  const [students, answers, submissions] = await Promise.all([
-    db.user.findMany({
-      where: { role: "STUDENT", active: true },
-      include: { membership: { include: { team: true } } },
+  const [enrollments, answers, submissions] = await Promise.all([
+    db.courseEnrollment.findMany({
+      where: { courseId, role: "STUDENT", user: { active: true } },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            memberships: { where: { courseId }, include: { team: true } },
+          },
+        },
+      },
     }),
     db.answer.findMany({
       where: { rating: { not: null }, peerEvaluation: { submission: { roundId } } },
@@ -80,13 +92,15 @@ export async function computeRoundAnalytics(roundId: string): Promise<RoundAnaly
     ratingsByQuestion.set(a.question.id, q);
   }
 
-  const studentStats: StudentStat[] = students.map((s) => {
+  const studentStats: StudentStat[] = enrollments.map((e) => {
+    const s = e.user;
     const ratings = ratingsByStudent.get(s.id) ?? [];
+    const membership = s.memberships[0];
     return {
       userId: s.id,
       name: s.name,
-      teamId: s.membership?.teamId ?? null,
-      teamName: s.membership?.team.name ?? null,
+      teamId: membership?.teamId ?? null,
+      teamName: membership?.team.name ?? null,
       average: avg(ratings),
       ratingsCount: ratings.length,
       submitted: submittedBy.has(s.id),
@@ -126,6 +140,7 @@ export async function computeRoundAnalytics(roundId: string): Promise<RoundAnaly
     roundId,
     roundName: round.name,
     sprint: round.sprint,
+    courseId,
     overallAverage: avg(allRatings),
     totalStudents: teamedStudents.length,
     submittedCount: teamedStudents.filter((s) => s.submitted).length,
@@ -139,6 +154,24 @@ export async function computeRoundAnalytics(roundId: string): Promise<RoundAnaly
   };
 }
 
+/**
+ * Analytics for a round. Closed rounds are served from the frozen snapshot
+ * taken at close time, so historical numbers never drift when the roster or
+ * team assignments change later. Open rounds are computed live.
+ */
+export async function getRoundAnalytics(roundId: string): Promise<RoundAnalytics> {
+  const round = await db.evaluationRound.findUnique({ where: { id: roundId } });
+  if (!round) throw new HttpError(404, "Round not found");
+  if (round.status === "CLOSED") {
+    const snapshot = await db.analyticsSnapshot.findFirst({
+      where: { roundId },
+      orderBy: { createdAt: "desc" },
+    });
+    if (snapshot) return snapshot.data as unknown as RoundAnalytics;
+  }
+  return computeRoundAnalytics(roundId);
+}
+
 export type TrendPoint = {
   roundId: string;
   roundName: string;
@@ -149,16 +182,16 @@ export type TrendPoint = {
   students: Record<string, number | null>;
 };
 
-/** Score history across all rounds that have submissions (oldest first). */
-export async function computeTrends(): Promise<TrendPoint[]> {
+/** Score history across a course's rounds that have submissions (oldest first). */
+export async function computeTrends(courseId: string): Promise<TrendPoint[]> {
   const rounds = await db.evaluationRound.findMany({
-    where: { submissions: { some: {} } },
+    where: { courseId, submissions: { some: {} } },
     orderBy: { sprint: "asc" },
     select: { id: true },
   });
   const points: TrendPoint[] = [];
   for (const r of rounds) {
-    const a = await computeRoundAnalytics(r.id);
+    const a = await getRoundAnalytics(r.id);
     points.push({
       roundId: a.roundId,
       roundName: a.roundName,
@@ -175,12 +208,19 @@ export async function computeTrends(): Promise<TrendPoint[]> {
 /** Snapshots analytics and (re)generates alerts for a round. Called on round close. */
 export async function generateRoundArtifacts(roundId: string) {
   const analytics = await computeRoundAnalytics(roundId);
-  const thresholds = await getThresholds();
-  const trends = await computeTrends();
+  const courseId = analytics.courseId;
+  const thresholds = await getThresholds(courseId);
 
-  await db.analyticsSnapshot.create({
-    data: { roundId, data: analytics as unknown as Prisma.InputJsonValue },
-  });
+  // Replace (not append) the snapshot so re-closing a reopened round can't
+  // leave duplicates.
+  await db.$transaction([
+    db.analyticsSnapshot.deleteMany({ where: { roundId } }),
+    db.analyticsSnapshot.create({
+      data: { roundId, data: analytics as unknown as Prisma.InputJsonValue },
+    }),
+  ]);
+
+  const trends = await computeTrends(courseId);
 
   // Recompute alerts idempotently for this round.
   await db.alert.deleteMany({ where: { roundId } });
@@ -190,22 +230,26 @@ export async function generateRoundArtifacts(roundId: string) {
     if (s.teamId === null) continue;
     if (!s.submitted) {
       alerts.push({
+        courseId,
         roundId,
         type: "MISSING_SUBMISSION",
         severity: "WARNING",
         userId: s.userId,
         teamId: s.teamId,
         message: `${s.name} did not submit an evaluation for ${analytics.roundName}.`,
+        meta: { kind: "missing" },
       });
     }
     if (s.average !== null && s.average < thresholds.lowAverage) {
       alerts.push({
+        courseId,
         roundId,
         type: "LOW_AVERAGE",
         severity: s.average < thresholds.lowAverage - 1 ? "CRITICAL" : "WARNING",
         userId: s.userId,
         teamId: s.teamId,
         message: `${s.name} received an average of ${s.average} (threshold ${thresholds.lowAverage}).`,
+        meta: { value: s.average, threshold: thresholds.lowAverage },
       });
     }
   }
@@ -213,11 +257,13 @@ export async function generateRoundArtifacts(roundId: string) {
   for (const t of analytics.teams) {
     if (t.average !== null && t.average < thresholds.lowAverage) {
       alerts.push({
+        courseId,
         roundId,
         type: "LOW_AVERAGE",
         severity: "WARNING",
         teamId: t.teamId,
         message: `Team ${t.name} average is ${t.average} (threshold ${thresholds.lowAverage}).`,
+        meta: { value: t.average, threshold: thresholds.lowAverage },
       });
     }
   }
@@ -232,12 +278,14 @@ export async function generateRoundArtifacts(roundId: string) {
       const before = previous.students[s.userId];
       if (now != null && before != null && before - now >= thresholds.trendDrop) {
         alerts.push({
+          courseId,
           roundId,
           type: "DOWNWARD_TREND",
           severity: "WARNING",
           userId: s.userId,
           teamId: s.teamId ?? undefined,
           message: `${s.name}'s average dropped from ${before} to ${now}.`,
+          meta: { value: now, previous: before, threshold: thresholds.trendDrop },
         });
       }
     }
@@ -252,12 +300,14 @@ export async function generateRoundArtifacts(roundId: string) {
         });
         if (belowInAll) {
           alerts.push({
+            courseId,
             roundId,
             type: "REPEATED_CONCERN",
             severity: "CRITICAL",
             userId: s.userId,
             teamId: s.teamId ?? undefined,
             message: `${s.name} has been below the ${thresholds.lowAverage} threshold for ${windowSize} consecutive rounds.`,
+            meta: { threshold: thresholds.lowAverage, consecutiveRounds: windowSize },
           });
         }
       }
@@ -268,20 +318,31 @@ export async function generateRoundArtifacts(roundId: string) {
   return { analytics, alertCount: alerts.length };
 }
 
-export function listAlerts(includeResolved = false) {
-  return db.alert.findMany({
-    where: includeResolved ? undefined : { resolved: false },
-    orderBy: [{ severity: "desc" }, { createdAt: "desc" }],
-    include: {
-      user: { select: { id: true, name: true } },
-      team: { select: { id: true, name: true } },
-      round: { select: { id: true, name: true, sprint: true } },
-    },
-  });
+export async function listAlerts(
+  courseId: string,
+  { page, pageSize }: Pagination,
+  includeResolved = false,
+) {
+  const where = { courseId, ...(includeResolved ? {} : { resolved: false }) };
+  const [total, items] = await Promise.all([
+    db.alert.count({ where }),
+    db.alert.findMany({
+      where,
+      orderBy: [{ severity: "desc" }, { createdAt: "desc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: {
+        user: { select: { id: true, name: true } },
+        team: { select: { id: true, name: true } },
+        round: { select: { id: true, name: true, sprint: true } },
+      },
+    }),
+  ]);
+  return { items, total, page, pageSize };
 }
 
-export async function resolveAlert(id: string) {
+export async function resolveAlert(id: string, courseId: string) {
   const alert = await db.alert.findUnique({ where: { id } });
-  if (!alert) throw new HttpError(404, "Alert not found");
+  if (!alert || alert.courseId !== courseId) throw new HttpError(404, "Alert not found");
   return db.alert.update({ where: { id }, data: { resolved: true } });
 }

@@ -20,7 +20,7 @@ afterEach(() => {
 describe("LoginForm", () => {
   it("validates inputs before calling signIn", async () => {
     const user = userEvent.setup();
-    render(<LoginForm />);
+    render(<LoginForm sso={null} />);
     await user.click(screen.getByRole("button", { name: /sign in/i }));
     expect(await screen.findByText(/enter your university email/i)).toBeTruthy();
     expect(signIn).not.toHaveBeenCalled();
@@ -29,7 +29,7 @@ describe("LoginForm", () => {
   it("shows an error on failed sign-in", async () => {
     signIn.mockResolvedValue({ error: "CredentialsSignin" });
     const user = userEvent.setup();
-    render(<LoginForm />);
+    render(<LoginForm sso={null} />);
     await user.type(screen.getByLabelText(/email/i), "joe@vt.edu");
     await user.type(screen.getByLabelText(/password/i), "wrong");
     await user.click(screen.getByRole("button", { name: /sign in/i }));
@@ -39,7 +39,7 @@ describe("LoginForm", () => {
   it("redirects on success", async () => {
     signIn.mockResolvedValue({ ok: true });
     const user = userEvent.setup();
-    render(<LoginForm />);
+    render(<LoginForm sso={null} />);
     await user.type(screen.getByLabelText(/email/i), "joe@vt.edu");
     await user.type(screen.getByLabelText(/password/i), "password123");
     await user.click(screen.getByRole("button", { name: /sign in/i }));

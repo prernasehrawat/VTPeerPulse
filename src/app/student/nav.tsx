@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 const LINKS = [
   { href: "/student", label: "Current evaluation" },
   { href: "/student/history", label: "My past submissions" },
+  { href: "/student/feedback", label: "My feedback" },
 ];
 
 export function StudentNav() {
