@@ -46,6 +46,15 @@ async function tick() {
     }
   }
 
+  // Drain any queued bulk-summary jobs (reliable fallback to the eager run
+  // kicked at enqueue time).
+  try {
+    const { processPendingBulkSummaries } = await import("./services/summaries");
+    await processPendingBulkSummaries();
+  } catch (err) {
+    logger.error({ err }, "scheduler: bulk summary drain failed");
+  }
+
   // Deadline reminders (once per round, ~24h before close).
   const closingSoon = await db.evaluationRound.findMany({
     where: {

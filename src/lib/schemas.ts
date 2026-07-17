@@ -120,5 +120,13 @@ export const summaryRequestSchema = z.object({
   kind: z.enum(["COMPLAINTS", "POSITIVES", "CONSTRUCTIVE", "INSTRUCTOR", "STUDENT_FEEDBACK"]),
 });
 
+export const bulkSummarySchema = z.object({
+  roundId: z.string().min(1),
+  // Bulk generation fans out over every subject of one type that has feedback.
+  subjectType: z.enum(["STUDENT", "TEAM"]),
+  kind: z.enum(["COMPLAINTS", "POSITIVES", "CONSTRUCTIVE", "INSTRUCTOR", "STUDENT_FEEDBACK"]),
+});
+export type BulkSummaryInput = z.infer<typeof bulkSummarySchema>;
+
 export type SubmissionInput = z.infer<typeof submissionSchema>;
 export type SummaryRequest = z.infer<typeof summaryRequestSchema>;

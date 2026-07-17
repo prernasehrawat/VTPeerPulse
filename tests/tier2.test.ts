@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
+import { setAIProvider } from "@/server/ai";
 import { setEmailProvider, type EmailMessage } from "@/server/email";
 import { HttpError } from "@/lib/errors";
 import {
@@ -8,6 +9,10 @@ import {
   nudgeRound,
   saveDraft,
 } from "@/server/services/evaluations";
+import {
+  enqueueBulkSummary,
+  getBulkSummaryStatus,
+} from "@/server/services/summaries";
 import { setRoundStatus } from "@/server/services/rounds";
 import { createCourseFixture, submitFor } from "./helpers";
 
@@ -23,11 +28,28 @@ beforeEach(async () => {
       sentEmails.push(message);
     },
   });
+  setAIProvider({
+    model: "fake-model",
+    async complete() {
+      return "Anonymized constructive feedback.";
+    },
+  });
 });
 
 afterEach(() => {
   setEmailProvider(null);
+  setAIProvider(null);
 });
+
+/** Polls a bulk-summary job until it reaches a terminal state. */
+async function waitForBulk(jobId: string, courseId: string) {
+  for (let i = 0; i < 200; i++) {
+    const s = await getBulkSummaryStatus(jobId, courseId);
+    if (s.status === "done" || s.status === "failed") return s;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  throw new Error("bulk summary job did not finish in time");
+}
 
 describe("server-side evaluation drafts", () => {
   it("saves, updates, and reloads a draft for an open round", async () => {
@@ -143,5 +165,80 @@ describe("manual nudge", () => {
     const { course, professor, round } = await createCourseFixture();
     await setRoundStatus(round.id, course.id, "CLOSED", professor.id);
     await expect(nudgeRound(round.id, course.id, professor.id)).rejects.toThrow(/open/);
+  });
+});
+
+describe("bulk summary generation", () => {
+  it("generates a summary for every student who received feedback", async () => {
+    const { course, professor, students, round, rating } = await createCourseFixture();
+    const [a, b, c] = students;
+    // Everyone comments on their teammates, so all three receive feedback.
+    await submitFor(a!.id, round.id, [b!.id, c!.id], rating.id, 4, "great work");
+    await submitFor(b!.id, round.id, [a!.id, c!.id], rating.id, 4, "reliable");
+    await submitFor(c!.id, round.id, [a!.id, b!.id], rating.id, 4, "helpful");
+
+    const { jobId, total } = await enqueueBulkSummary(course.id, professor.id, {
+      roundId: round.id,
+      subjectType: "STUDENT",
+      kind: "STUDENT_FEEDBACK",
+    });
+    expect(total).toBe(3);
+
+    const status = await waitForBulk(jobId, course.id);
+    expect(status.status).toBe("done");
+    expect(status.done).toBe(3);
+
+    const summaries = await db.aISummary.count({
+      where: { roundId: round.id, kind: "STUDENT_FEEDBACK", subjectType: "STUDENT" },
+    });
+    expect(summaries).toBe(3);
+  });
+
+  it("is idempotent — a second run creates no duplicates", async () => {
+    const { course, professor, students, round, rating } = await createCourseFixture();
+    const [a, b, c] = students;
+    await submitFor(a!.id, round.id, [b!.id, c!.id], rating.id, 4, "great");
+    await submitFor(b!.id, round.id, [a!.id, c!.id], rating.id, 4, "solid");
+
+    const first = await enqueueBulkSummary(course.id, professor.id, {
+      roundId: round.id,
+      subjectType: "STUDENT",
+      kind: "CONSTRUCTIVE",
+    });
+    await waitForBulk(first.jobId, course.id);
+    const afterFirst = await db.aISummary.count({ where: { roundId: round.id, kind: "CONSTRUCTIVE" } });
+
+    const second = await enqueueBulkSummary(course.id, professor.id, {
+      roundId: round.id,
+      subjectType: "STUDENT",
+      kind: "CONSTRUCTIVE",
+    });
+    const status = await waitForBulk(second.jobId, course.id);
+    expect(status.status).toBe("done");
+    const afterSecond = await db.aISummary.count({ where: { roundId: round.id, kind: "CONSTRUCTIVE" } });
+    expect(afterSecond).toBe(afterFirst);
+  });
+
+  it("rejects when the round has no written feedback", async () => {
+    const { course, professor, round } = await createCourseFixture();
+    await expect(
+      enqueueBulkSummary(course.id, professor.id, {
+        roundId: round.id,
+        subjectType: "STUDENT",
+        kind: "STUDENT_FEEDBACK",
+      }),
+    ).rejects.toThrow(/no written feedback/i);
+  });
+
+  it("rejects a round belonging to another course", async () => {
+    const { round } = await createCourseFixture();
+    const other = await createCourseFixture(["Dan D", "Eve E", "Fay F"]);
+    await expect(
+      enqueueBulkSummary(other.course.id, other.professor.id, {
+        roundId: round.id,
+        subjectType: "STUDENT",
+        kind: "STUDENT_FEEDBACK",
+      }),
+    ).rejects.toThrow(HttpError);
   });
 });

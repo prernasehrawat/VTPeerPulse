@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { HttpError } from "@/lib/errors";
-import type { Pagination, SummaryRequest } from "@/lib/schemas";
+import { logger } from "@/lib/logger";
+import type { BulkSummaryInput, Pagination, SummaryRequest } from "@/lib/schemas";
 import { getAIProvider } from "@/server/ai";
 import type { ChatMessage } from "@/server/ai/provider";
 import { audit } from "./audit";
@@ -145,6 +146,191 @@ export async function generateSummary(req: SummaryRequest, courseId: string, act
     kind: req.kind,
   });
   return summary;
+}
+
+// ---------------------------------------------------------------------------
+// Bulk generation
+//
+// Generating per-student feedback for a whole class is many slow AI calls, so
+// it runs as a background Job processed by the scheduler (and kicked eagerly on
+// enqueue). Jobs are idempotent: subjects that already have a summary of the
+// requested kind are skipped, so re-running only fills the gaps.
+// ---------------------------------------------------------------------------
+
+const BULK_JOB_TYPE = "BULK_SUMMARY";
+
+type BulkSummaryPayload = {
+  roundId: string;
+  courseId: string;
+  actorId: string;
+  kind: SummaryRequest["kind"];
+  subjectType: "STUDENT" | "TEAM";
+  subjectIds: string[];
+};
+
+/** Subjects of a round that received at least one written comment. */
+async function resolveBulkSubjects(
+  roundId: string,
+  subjectType: "STUDENT" | "TEAM",
+  courseId: string,
+): Promise<string[]> {
+  const withComments = await db.peerEvaluation.findMany({
+    where: { submission: { roundId }, answers: { some: { comment: { not: null } } } },
+    select: { evaluateeId: true },
+    distinct: ["evaluateeId"],
+  });
+  const studentIds = withComments.map((e) => e.evaluateeId);
+  if (subjectType === "STUDENT") return studentIds;
+  if (studentIds.length === 0) return [];
+  const memberships = await db.teamMembership.findMany({
+    where: { courseId, userId: { in: studentIds } },
+    select: { teamId: true },
+    distinct: ["teamId"],
+  });
+  return memberships.map((m) => m.teamId);
+}
+
+/** Enqueues a background job to summarize every subject with feedback in a round. */
+export async function enqueueBulkSummary(
+  courseId: string,
+  actorId: string,
+  input: BulkSummaryInput,
+) {
+  const round = await db.evaluationRound.findUnique({ where: { id: input.roundId } });
+  if (!round || round.courseId !== courseId) throw new HttpError(404, "Round not found");
+
+  const subjectIds = await resolveBulkSubjects(input.roundId, input.subjectType, courseId);
+  if (subjectIds.length === 0) {
+    throw new HttpError(400, "No written feedback is available to summarize for this round");
+  }
+
+  const payload: BulkSummaryPayload = {
+    roundId: input.roundId,
+    courseId,
+    actorId,
+    kind: input.kind,
+    subjectType: input.subjectType,
+    subjectIds,
+  };
+  const job = await db.job.create({
+    data: { type: BULK_JOB_TYPE, payload, runAt: new Date() },
+  });
+  await audit(actorId, "summary.bulk.enqueue", "EvaluationRound", input.roundId, {
+    kind: input.kind,
+    subjectType: input.subjectType,
+    total: subjectIds.length,
+  });
+
+  // Start immediately for snappy UX; the scheduler is the reliable fallback if
+  // this process is torn down mid-run. Both paths claim jobs atomically.
+  void processPendingBulkSummaries().catch((err) =>
+    logger.error({ err, jobId: job.id }, "eager bulk-summary run failed"),
+  );
+
+  return { jobId: job.id, total: subjectIds.length };
+}
+
+/** Poll target for a bulk job: derives progress from summaries actually written. */
+export async function getBulkSummaryStatus(jobId: string, courseId: string) {
+  const job = await db.job.findUnique({ where: { id: jobId } });
+  if (!job || job.type !== BULK_JOB_TYPE) throw new HttpError(404, "Job not found");
+  const payload = job.payload as BulkSummaryPayload;
+  if (payload.courseId !== courseId) throw new HttpError(404, "Job not found");
+
+  const doneRows = await db.aISummary.findMany({
+    where: {
+      roundId: payload.roundId,
+      kind: payload.kind,
+      subjectType: payload.subjectType,
+      subjectId: { in: payload.subjectIds },
+    },
+    select: { subjectId: true },
+    distinct: ["subjectId"],
+  });
+  const status = job.failedAt
+    ? "failed"
+    : job.completedAt
+      ? "done"
+      : job.startedAt
+        ? "running"
+        : "pending";
+  return {
+    status,
+    done: Math.min(doneRows.length, payload.subjectIds.length),
+    total: payload.subjectIds.length,
+    error: job.lastError ?? null,
+  };
+}
+
+/** Generates a summary for each subject in the job, skipping any already done. */
+async function runBulkSummaryJob(payload: BulkSummaryPayload) {
+  let generated = 0;
+  let skipped = 0;
+  let errors = 0;
+  for (const subjectId of payload.subjectIds) {
+    const existing = await db.aISummary.findFirst({
+      where: {
+        roundId: payload.roundId,
+        kind: payload.kind,
+        subjectType: payload.subjectType,
+        subjectId,
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      skipped++;
+      continue;
+    }
+    try {
+      await generateSummary(
+        { roundId: payload.roundId, subjectType: payload.subjectType, subjectId, kind: payload.kind },
+        payload.courseId,
+        payload.actorId,
+      );
+      generated++;
+    } catch (err) {
+      errors++;
+      logger.warn({ err, subjectId, roundId: payload.roundId }, "bulk summary: subject failed");
+    }
+  }
+  return { generated, skipped, errors };
+}
+
+/**
+ * Drains all pending bulk-summary jobs. Called both eagerly on enqueue and from
+ * the scheduler. Jobs are claimed atomically (only when `startedAt` is still
+ * null) so the two callers never process the same job twice.
+ */
+export async function processPendingBulkSummaries() {
+  for (;;) {
+    const job = await db.job.findFirst({
+      where: { type: BULK_JOB_TYPE, startedAt: null },
+      orderBy: { createdAt: "asc" },
+    });
+    if (!job) return;
+    const claim = await db.job.updateMany({
+      where: { id: job.id, startedAt: null },
+      data: { startedAt: new Date(), attempts: { increment: 1 } },
+    });
+    if (claim.count === 0) continue; // another runner claimed it first
+    try {
+      const result = await runBulkSummaryJob(job.payload as BulkSummaryPayload);
+      await db.job.update({
+        where: { id: job.id },
+        data: {
+          completedAt: new Date(),
+          lastError: result.errors > 0 ? `${result.errors} subject(s) failed` : null,
+        },
+      });
+      logger.info({ jobId: job.id, ...result }, "bulk summary job complete");
+    } catch (err) {
+      await db.job.update({
+        where: { id: job.id },
+        data: { failedAt: new Date(), lastError: String(err) },
+      });
+      logger.error({ err, jobId: job.id }, "bulk summary job failed");
+    }
+  }
 }
 
 export async function listSummaries(

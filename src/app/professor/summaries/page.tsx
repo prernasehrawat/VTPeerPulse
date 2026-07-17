@@ -13,6 +13,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { BulkGenerate } from "./bulk-generate";
 
 type Round = { id: string; name: string; sprint: number };
 type Team = { id: string; name: string };
@@ -199,6 +200,8 @@ export default function SummariesPage() {
           </form>
         </CardContent>
       </Card>
+
+      <BulkGenerate courseId={course.id} rounds={rounds ?? []} />
 
       <Card>
         <CardHeader>
