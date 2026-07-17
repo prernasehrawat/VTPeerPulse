@@ -29,6 +29,11 @@ jobs:
       NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
+      # The committed .env.test hardcodes a local DATABASE_URL and the vitest
+      # setup loads it with override:true (to protect a dev's real DB). Point it
+      # at the ephemeral CI Postgres so tests hit the right database.
+      - name: Point test env at CI Postgres
+        run: sed -i 's#^DATABASE_URL=.*#DATABASE_URL="${{ env.DATABASE_URL }}"#' .env.test
       - uses: actions/setup-node@v4
         with:
           node-version: 22
