@@ -244,6 +244,44 @@ describe("bulk summary generation", () => {
   });
 });
 
+describe("reopening a round", () => {
+  it("clears an expired deadline so the scheduler won't immediately re-close it", async () => {
+    const { course, professor, round } = await createCourseFixture();
+    // Give it a past deadline, close, then reopen.
+    await db.evaluationRound.update({
+      where: { id: round.id },
+      data: { closesAt: new Date(Date.now() - 60_000) },
+    });
+    await setRoundStatus(round.id, course.id, "CLOSED", professor.id);
+
+    const reopened = await setRoundStatus(round.id, course.id, "OPEN", professor.id);
+    expect(reopened.status).toBe("OPEN");
+    expect(reopened.closesAt).toBeNull();
+  });
+
+  it("keeps a still-future deadline when reopening", async () => {
+    const { course, professor, round } = await createCourseFixture();
+    // Free the single-open-round slot the fixture's open round occupies.
+    await setRoundStatus(round.id, course.id, "CLOSED", professor.id);
+
+    const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const closed = await db.evaluationRound.create({
+      data: {
+        courseId: course.id,
+        name: "Sprint 9",
+        sprint: 9,
+        status: "CLOSED",
+        opensAt: new Date(),
+        closesAt: future,
+      },
+    });
+
+    const reopened = await setRoundStatus(closed.id, course.id, "OPEN", professor.id);
+    expect(reopened.status).toBe("OPEN");
+    expect(reopened.closesAt?.getTime()).toBe(future.getTime());
+  });
+});
+
 describe("semester rollover", () => {
   it("clones questions, roster, and teams but not rounds or submissions", async () => {
     const { course, professor, students, round, rating, team } = await createCourseFixture();

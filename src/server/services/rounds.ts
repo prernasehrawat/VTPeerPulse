@@ -75,9 +75,15 @@ export async function setRoundStatus(
     });
     if (open) throw new HttpError(409, `Round "${open.name}" is already open. Close it first.`);
   }
-  const data: { status: RoundStatus; opensAt?: Date; closesAt?: Date } = { status };
+  const data: { status: RoundStatus; opensAt?: Date; closesAt?: Date | null } = { status };
   if (status === "OPEN" && !round.opensAt) data.opensAt = new Date();
   if (status === "CLOSED") data.closesAt = new Date();
+  // A deadline that has already passed would make the scheduler auto-close the
+  // round on its very next tick, silently undoing a reopen. Drop an expired
+  // deadline when opening; a still-future deadline is left in place.
+  if (status === "OPEN" && round.closesAt && round.closesAt.getTime() <= Date.now()) {
+    data.closesAt = null;
+  }
   const updated = await db.evaluationRound.update({ where: { id }, data });
   await audit(actorId, `round.${status.toLowerCase()}`, "EvaluationRound", id);
 
