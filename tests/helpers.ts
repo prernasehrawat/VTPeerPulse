@@ -5,7 +5,8 @@ export async function resetDb() {
   await db.$executeRawUnsafe(`
     TRUNCATE "User","Course","CourseEnrollment","Team","TeamMembership","EvaluationRound",
       "Question","Submission","PeerEvaluation","Answer","AnalyticsSnapshot","AISummary",
-      "Alert","Notification","AuditLog","Setting","AuthToken","Job" RESTART IDENTITY CASCADE
+      "EvaluationDraft","Alert","Notification","AuditLog","Setting","AuthToken","Job"
+      RESTART IDENTITY CASCADE
   `);
 }
 

@@ -63,8 +63,12 @@ export async function notifyRoundOpened(roundId: string) {
   );
 }
 
-/** Reminds students who have not yet submitted for an open round. */
-export async function notifyRoundReminder(roundId: string) {
+/**
+ * Reminds students who have not yet submitted for an open round. Pass
+ * `onlyUserIds` to remind a specific subset (an instructor nudging selected
+ * students); omit it to remind everyone still outstanding.
+ */
+export async function notifyRoundReminder(roundId: string, onlyUserIds?: string[]) {
   const round = await db.evaluationRound.findUnique({
     where: { id: roundId },
     include: { course: true, submissions: { select: { evaluatorId: true } } },
@@ -75,7 +79,10 @@ export async function notifyRoundReminder(roundId: string) {
     where: { courseId: round.courseId, role: "STUDENT", user: { active: true } },
     include: { user: { select: { id: true, email: true, name: true } } },
   });
-  const pending = enrollments.filter((e) => !submitted.has(e.userId)).map((e) => e.user);
+  const target = onlyUserIds ? new Set(onlyUserIds) : null;
+  const pending = enrollments
+    .filter((e) => !submitted.has(e.userId) && (!target || target.has(e.userId)))
+    .map((e) => e.user);
   const deadline = round.closesAt
     ? ` before it closes on ${round.closesAt.toLocaleString("en-US", {
         dateStyle: "long",

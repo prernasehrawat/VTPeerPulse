@@ -79,6 +79,27 @@ export const submissionSchema = z.object({
   evaluations: z.array(peerEvaluationSchema).min(1).max(50),
 });
 
+export const draftAnswerSchema = z.object({
+  rating: z.number().int().min(1).max(5).optional(),
+  comment: z.string().max(4000).optional(),
+});
+
+export const draftSaveSchema = z.object({
+  roundId: z.string().min(1),
+  // Keyed by `${teammateId}:${questionId}`; bounded so a draft can't be abused
+  // as unbounded storage (max 50 teammates × 100 questions upstream anyway).
+  data: z
+    .record(z.string(), draftAnswerSchema)
+    .refine((d) => Object.keys(d).length <= 5000, "Draft has too many entries"),
+});
+export type DraftSaveInput = z.infer<typeof draftSaveSchema>;
+
+export const nudgeRoundSchema = z.object({
+  // Omit or empty → remind everyone still outstanding; otherwise just these students.
+  userIds: z.array(z.string().min(1)).max(1000).optional(),
+});
+export type NudgeRoundInput = z.infer<typeof nudgeRoundSchema>;
+
 export const thresholdsSchema = z.object({
   lowAverage: z.number().min(1).max(5).default(3),
   trendDrop: z.number().min(0.1).max(4).default(0.5),

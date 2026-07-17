@@ -77,6 +77,7 @@ model User {
   memberships         TeamMembership[]
   authTokens          AuthToken[]
   submissions         Submission[]
+  drafts              EvaluationDraft[]
   evaluationsReceived PeerEvaluation[] @relation("evaluatee")
   alerts              Alert[]
   notifications       Notification[]
@@ -161,6 +162,7 @@ model EvaluationRound {
   summaries   AISummary[]
   alerts      Alert[]
   snapshots   AnalyticsSnapshot[]
+  drafts      EvaluationDraft[]
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
 
@@ -220,6 +222,23 @@ model Answer {
 
   @@unique([peerEvaluationId, questionId])
   @@index([questionId])
+}
+
+/// Server-side autosave of an in-progress evaluation. One per (round, evaluator);
+/// deleted when the final immutable Submission is created. Lets a student resume
+/// on any device and lets instructors see who has started but not yet submitted.
+model EvaluationDraft {
+  id          String          @id @default(cuid())
+  roundId     String
+  evaluatorId String
+  round       EvaluationRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  evaluator   User            @relation(fields: [evaluatorId], references: [id], onDelete: Cascade)
+  data        Json
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@unique([roundId, evaluatorId])
+  @@index([roundId])
 }
 
 model AnalyticsSnapshot {

@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { SubmissionTracker } from "./submission-tracker";
 
 type Round = {
   id: string;
@@ -153,6 +154,9 @@ export default function RoundsPage() {
                     </TableCell>
                     <TableCell>{r._count.submissions}</TableCell>
                     <TableCell className="space-x-2 text-right">
+                      {r.status !== "DRAFT" && (
+                        <SubmissionTracker roundId={r.id} roundName={r.name} courseId={course.id} />
+                      )}
                       {(r.status === "DRAFT" || r.status === "CLOSED") && (
                         <Button
                           size="sm"
