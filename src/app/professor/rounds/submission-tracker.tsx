@@ -116,8 +116,8 @@ export function SubmissionTracker({
                   disabled={nudge.isPending || outstanding.length === 0}
                 >
                   {selected.size > 0
-                    ? `Nudge ${selected.size} selected`
-                    : `Nudge all ${outstanding.length} outstanding`}
+                    ? `Send reminder to ${selected.size} selected`
+                    : `Send reminder to all ${outstanding.length} outstanding`}
                 </Button>
                 {outstanding.length > 0 && (
                   <Button
