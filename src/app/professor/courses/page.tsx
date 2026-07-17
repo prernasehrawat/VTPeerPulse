@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { RolloverDialog } from "./rollover-dialog";
 
 type Course = {
   id: string;
@@ -258,7 +259,8 @@ export default function CoursesPage() {
                         <Badge variant="secondary">Archived</Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="space-x-2 text-right">
+                      <RolloverDialog source={c} />
                       <Button
                         size="sm"
                         variant="outline"

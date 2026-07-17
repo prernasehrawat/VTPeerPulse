@@ -13,6 +13,7 @@ import {
   enqueueBulkSummary,
   getBulkSummaryStatus,
 } from "@/server/services/summaries";
+import { rolloverCourse } from "@/server/services/courses";
 import { setRoundStatus } from "@/server/services/rounds";
 import { createCourseFixture, submitFor } from "./helpers";
 
@@ -240,5 +241,84 @@ describe("bulk summary generation", () => {
         kind: "STUDENT_FEEDBACK",
       }),
     ).rejects.toThrow(HttpError);
+  });
+});
+
+describe("semester rollover", () => {
+  it("clones questions, roster, and teams but not rounds or submissions", async () => {
+    const { course, professor, students, round, rating, team } = await createCourseFixture();
+    // Generate some round activity that must NOT carry over.
+    await submitFor(students[0]!.id, round.id, students.slice(1).map((s) => s.id), rating.id, 4);
+
+    const next = await rolloverCourse(course.id, professor.id, {
+      code: course.code,
+      name: course.name,
+      term: "Spring 2027",
+      copyRoster: true,
+      copyTeams: true,
+    });
+    expect(next.id).not.toBe(course.id);
+    expect(next.term).toBe("Spring 2027");
+
+    const [questions, enrollments, teams, rounds, submissions] = await Promise.all([
+      db.question.count({ where: { courseId: next.id } }),
+      db.courseEnrollment.count({ where: { courseId: next.id } }),
+      db.team.findMany({ where: { courseId: next.id }, include: { memberships: true } }),
+      db.evaluationRound.count({ where: { courseId: next.id } }),
+      db.submission.count({ where: { round: { courseId: next.id } } }),
+    ]);
+    expect(questions).toBe(2); // rating + text from the fixture
+    // 3 students + 1 professor enrolled in the source, all carried over.
+    expect(enrollments).toBe(4);
+    expect(teams).toHaveLength(1);
+    expect(teams[0]!.name).toBe(team.name);
+    expect(teams[0]!.memberships).toHaveLength(3);
+    expect(rounds).toBe(0);
+    expect(submissions).toBe(0);
+  });
+
+  it("copies questions only when roster and teams are skipped, but keeps the creator enrolled", async () => {
+    const { course, professor } = await createCourseFixture();
+    const next = await rolloverCourse(course.id, professor.id, {
+      code: "CS 9999",
+      name: "Fresh Section",
+      term: "Spring 2027",
+      copyRoster: false,
+      copyTeams: false,
+    });
+    const enrollments = await db.courseEnrollment.findMany({ where: { courseId: next.id } });
+    expect(enrollments).toHaveLength(1);
+    expect(enrollments[0]!.userId).toBe(professor.id);
+    expect(enrollments[0]!.role).toBe("INSTRUCTOR");
+    expect(await db.team.count({ where: { courseId: next.id } })).toBe(0);
+    expect(await db.question.count({ where: { courseId: next.id } })).toBe(2);
+  });
+
+  it("forces the roster to come along when teams are copied", async () => {
+    const { course, professor } = await createCourseFixture();
+    const next = await rolloverCourse(course.id, professor.id, {
+      code: "CS 8888",
+      name: "Section",
+      term: "Spring 2027",
+      copyRoster: false,
+      copyTeams: true,
+    });
+    // Teams need members, so the roster is carried despite copyRoster: false.
+    expect(await db.courseEnrollment.count({ where: { courseId: next.id } })).toBe(4);
+    const teams = await db.team.findMany({ where: { courseId: next.id }, include: { memberships: true } });
+    expect(teams[0]!.memberships).toHaveLength(3);
+  });
+
+  it("rejects a duplicate code+term", async () => {
+    const { course, professor } = await createCourseFixture();
+    await expect(
+      rolloverCourse(course.id, professor.id, {
+        code: course.code,
+        name: course.name,
+        term: course.term, // same term as source → clash
+        copyRoster: true,
+        copyTeams: true,
+      }),
+    ).rejects.toThrow(/already exists/);
   });
 });

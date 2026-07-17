@@ -27,6 +27,16 @@ export const courseUpdateSchema = z.object({
   active: z.boolean().optional(),
 });
 
+export const courseRolloverSchema = z.object({
+  code: z.string().trim().min(2).max(50),
+  name: z.string().trim().min(2).max(200),
+  term: z.string().trim().min(2).max(50),
+  timezone: timezoneSchema.optional(),
+  copyRoster: z.boolean().default(true),
+  copyTeams: z.boolean().default(true),
+});
+export type CourseRolloverInput = z.infer<typeof courseRolloverSchema>;
+
 export const paginationSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(50),

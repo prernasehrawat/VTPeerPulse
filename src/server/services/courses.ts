@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { HttpError } from "@/lib/errors";
-import type { courseCreateSchema, courseUpdateSchema } from "@/lib/schemas";
+import type {
+  CourseRolloverInput,
+  courseCreateSchema,
+  courseUpdateSchema,
+} from "@/lib/schemas";
 import { audit } from "./audit";
 
 /** Courses where the user teaches (professors) or is enrolled (students). */
@@ -77,6 +81,105 @@ export async function addCourseStaff(
   }
   await audit(actorId, "course.staff-add", "Course", courseId, { email: normalized, role });
   return { userId: user.id, created, role };
+}
+
+/**
+ * Semester rollover: clones a course into a new term. Carries over the question
+ * set and, optionally, the roster and team structure — but never rounds,
+ * submissions, summaries, or alerts, which always start fresh for a new term.
+ * Users are global, so carried enrollments simply re-link the same accounts.
+ */
+export async function rolloverCourse(
+  sourceId: string,
+  actorId: string,
+  input: CourseRolloverInput,
+) {
+  const source = await db.course.findUnique({
+    where: { id: sourceId },
+    include: {
+      questions: true,
+      enrollments: true,
+      teams: { include: { memberships: true } },
+    },
+  });
+  if (!source) throw new HttpError(404, "Source course not found");
+
+  const clash = await db.course.findUnique({
+    where: { code_term: { code: input.code, term: input.term } },
+  });
+  if (clash) throw new HttpError(409, `${input.code} (${input.term}) already exists`);
+
+  // Copying teams requires the roster those teams reference.
+  const copyRoster = input.copyRoster || input.copyTeams;
+
+  const created = await db.$transaction(async (tx) => {
+    const course = await tx.course.create({
+      data: {
+        code: input.code,
+        name: input.name,
+        term: input.term,
+        timezone: input.timezone ?? source.timezone,
+      },
+    });
+
+    if (source.questions.length > 0) {
+      await tx.question.createMany({
+        data: source.questions.map((q) => ({
+          courseId: course.id,
+          prompt: q.prompt,
+          type: q.type,
+          required: q.required,
+          active: q.active,
+          order: q.order,
+        })),
+      });
+    }
+
+    const enrolledUserIds = new Set<string>();
+    if (copyRoster && source.enrollments.length > 0) {
+      await tx.courseEnrollment.createMany({
+        data: source.enrollments.map((e) => ({
+          courseId: course.id,
+          userId: e.userId,
+          role: e.role,
+        })),
+      });
+      for (const e of source.enrollments) enrolledUserIds.add(e.userId);
+    }
+    // The instructor running the rollover must always be able to see the result.
+    if (!enrolledUserIds.has(actorId)) {
+      await tx.courseEnrollment.create({
+        data: { courseId: course.id, userId: actorId, role: "INSTRUCTOR" },
+      });
+      enrolledUserIds.add(actorId);
+    }
+
+    if (input.copyTeams) {
+      for (const team of source.teams) {
+        // A student belongs to at most one team per course, so carrying their
+        // membership forward can never violate the (userId, courseId) unique.
+        const members = team.memberships.filter((m) => enrolledUserIds.has(m.userId));
+        await tx.team.create({
+          data: {
+            courseId: course.id,
+            name: team.name,
+            memberships: { create: members.map((m) => ({ userId: m.userId, courseId: course.id })) },
+          },
+        });
+      }
+    }
+
+    return course;
+  });
+
+  await audit(actorId, "course.rollover", "Course", created.id, {
+    from: sourceId,
+    copyRoster,
+    copyTeams: input.copyTeams,
+    questions: source.questions.length,
+    enrollments: copyRoster ? source.enrollments.length : 0,
+  });
+  return created;
 }
 
 export async function updateCourse(
