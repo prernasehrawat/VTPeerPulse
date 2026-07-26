@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { BULK_KIND_ORDER, kindByValue } from "./kinds";
 
 type Round = { id: string; name: string; sprint: number };
 type BulkStatus = {
@@ -20,13 +21,7 @@ type BulkStatus = {
   error: string | null;
 };
 
-const KINDS = [
-  { value: "STUDENT_FEEDBACK", label: "Student-shareable feedback" },
-  { value: "CONSTRUCTIVE", label: "Constructive feedback" },
-  { value: "INSTRUCTOR", label: "Instructor briefing" },
-  { value: "COMPLAINTS", label: "Complaint summary" },
-  { value: "POSITIVES", label: "Positive summary" },
-];
+const KINDS = BULK_KIND_ORDER.map((v) => kindByValue.get(v)!);
 
 export function BulkGenerate({ courseId, rounds }: { courseId: string; rounds: Round[] }) {
   const qc = useQueryClient();
@@ -65,6 +60,7 @@ export function BulkGenerate({ courseId, rounds }: { courseId: string; rounds: R
 
   const pct = status && status.total > 0 ? Math.round((status.done / status.total) * 100) : 0;
   const busy = start.isPending || status?.status === "pending" || status?.status === "running";
+  const selectedKind = kindByValue.get(kind);
 
   return (
     <Card>
@@ -132,6 +128,12 @@ export function BulkGenerate({ courseId, rounds }: { courseId: string; rounds: R
           <Button type="submit" disabled={busy}>
             {busy ? "Generating…" : "Generate for all"}
           </Button>
+          {selectedKind && (
+            <p className="w-full text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">{selectedKind.label}:</span>{" "}
+              {selectedKind.blurb}
+            </p>
+          )}
         </form>
 
         {status && (

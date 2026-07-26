@@ -46,3 +46,6 @@ playwright-report
 
 # Prisma generated client (run: npx prisma generate)
 src/generated/
+
+# Local sample data
+sample-roster.csv

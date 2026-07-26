@@ -353,6 +353,28 @@ export async function listSummaries(
 }
 
 /**
+ * Instructor revision of a draft summary's text before it goes out. Only DRAFT
+ * summaries can be edited: once RELEASED the student has already seen the text,
+ * so it is frozen as the record of what was sent. Stamps editedAt so UIs can
+ * flag an instructor-revised draft.
+ */
+export async function editSummary(id: string, courseId: string, actorId: string, content: string) {
+  const summary = await db.aISummary.findUnique({ where: { id }, include: { round: true } });
+  if (!summary || summary.round.courseId !== courseId) throw new HttpError(404, "Summary not found");
+  if (summary.status === "RELEASED") {
+    throw new HttpError(400, "This summary has already been released and can no longer be edited");
+  }
+  const trimmed = content.trim();
+  if (!trimmed) throw new HttpError(400, "Summary can't be empty");
+  const updated = await db.aISummary.update({
+    where: { id },
+    data: { content: trimmed.slice(0, MAX_OUTPUT_CHARS), editedAt: new Date() },
+  });
+  await audit(actorId, "summary.edit", "AISummary", id, { roundId: summary.roundId });
+  return updated;
+}
+
+/**
  * Releases a student-shareable summary to its subject. Only STUDENT_FEEDBACK
  * summaries about a single student can be released — instructor briefings and
  * raw complaint rollups are never student-visible.

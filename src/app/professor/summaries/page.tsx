@@ -13,7 +13,10 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { BulkGenerate } from "./bulk-generate";
+import { SummaryGuide } from "./guide";
+import { SUMMARY_KINDS as KINDS } from "./kinds";
 
 type Round = { id: string; name: string; sprint: number };
 type Team = { id: string; name: string };
@@ -27,19 +30,12 @@ type Summary = {
   content: string;
   model: string;
   status: "DRAFT" | "RELEASED";
+  editedAt: string | null;
   releasedAt: string | null;
   createdAt: string;
   round: { name: string; sprint: number };
 };
 type SummaryPage = { items: Summary[]; total: number; page: number; pageSize: number };
-
-const KINDS = [
-  { value: "INSTRUCTOR", label: "Instructor briefing" },
-  { value: "COMPLAINTS", label: "Complaint summary" },
-  { value: "POSITIVES", label: "Positive summary" },
-  { value: "CONSTRUCTIVE", label: "Constructive feedback" },
-  { value: "STUDENT_FEEDBACK", label: "Student-shareable feedback" },
-];
 
 const PAGE_SIZE = 20;
 
@@ -98,12 +94,35 @@ export default function SummariesPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // Which draft is open for editing, and its working text.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const beginEdit = (s: Summary) => {
+    setEditingId(s.id);
+    setDraft(s.content);
+  };
+  const edit = useMutation({
+    mutationFn: (id: string) =>
+      api(`/api/summaries/${id}?courseId=${course.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ content: draft }),
+      }),
+    onSuccess: () => {
+      toast.success("Summary updated");
+      setEditingId(null);
+      qc.invalidateQueries({ queryKey: ["summaries"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const subjectOptions =
     subjectType === "TEAM" ? teams : subjectType === "STUDENT" ? students?.items : [];
+  const selectedKind = KINDS.find((k) => k.value === kind);
   const totalPages = summaries ? Math.max(1, Math.ceil(summaries.total / PAGE_SIZE)) : 1;
 
   return (
     <div className="space-y-6">
+      <SummaryGuide />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Generate AI summary</CardTitle>
@@ -197,6 +216,12 @@ export default function SummariesPage() {
             <Button type="submit" disabled={generate.isPending}>
               {generate.isPending ? "Generating…" : "Generate"}
             </Button>
+            {selectedKind && (
+              <p className="w-full text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">{selectedKind.label}:</span>{" "}
+                {selectedKind.blurb}
+              </p>
+            )}
           </form>
         </CardContent>
       </Card>
@@ -228,23 +253,62 @@ export default function SummariesPage() {
                         ) : (
                           <Badge variant="destructive">Not released</Badge>
                         ))}
+                      {s.editedAt && <Badge variant="outline">Edited by instructor</Badge>}
                       <span className="text-xs text-muted-foreground">
                         {s.round.name} (Sprint {s.round.sprint}) · {s.model} ·{" "}
                         {new Date(s.createdAt).toLocaleString()}
                       </span>
-                      {s.kind === "STUDENT_FEEDBACK" && s.status === "DRAFT" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="ml-auto"
-                          onClick={() => release.mutate(s.id)}
-                          disabled={release.isPending}
-                        >
-                          Release to student
-                        </Button>
+                      {s.status === "DRAFT" && editingId !== s.id && (
+                        <div className="ml-auto flex gap-2">
+                          <Button size="sm" variant="ghost" onClick={() => beginEdit(s)}>
+                            Edit
+                          </Button>
+                          {s.kind === "STUDENT_FEEDBACK" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => release.mutate(s.id)}
+                              disabled={release.isPending}
+                            >
+                              Release to student
+                            </Button>
+                          )}
+                        </div>
                       )}
                     </div>
-                    <p className="whitespace-pre-wrap text-sm">{s.content}</p>
+                    {editingId === s.id ? (
+                      <div className="space-y-2">
+                        <Textarea
+                          value={draft}
+                          maxLength={20_000}
+                          rows={Math.min(20, Math.max(6, draft.split("\n").length + 1))}
+                          onChange={(e) => setDraft(e.target.value)}
+                          aria-label="Edit summary text"
+                        />
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => edit.mutate(s.id)}
+                            disabled={edit.isPending || !draft.trim()}
+                          >
+                            {edit.isPending ? "Saving…" : "Save changes"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setEditingId(null)}
+                            disabled={edit.isPending}
+                          >
+                            Cancel
+                          </Button>
+                          <p className="text-xs text-muted-foreground">
+                            Review and revise before releasing — students see exactly this text.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="whitespace-pre-wrap text-sm">{s.content}</p>
+                    )}
                   </li>
                 ))}
               </ul>
