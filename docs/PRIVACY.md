@@ -39,6 +39,9 @@ processing agreement through university counsel.
   ratings tied to identities) is sent to the configured endpoint, which can be
   a university-hosted OpenAI-compatible model to keep data on premises.
 - Every generated summary records which model produced it.
+- Instructors review each summary and may edit its text before releasing it;
+  a summary is only ever a draft until explicitly released, and once released
+  its text is frozen. Edits are captured in the audit log.
 
 ## Retention & deletion
 

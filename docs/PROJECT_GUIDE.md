@@ -8,12 +8,14 @@ A plain-language walkthrough of what this app is, how it's built, and how to tes
 
 VT PeerPulse is a **university peer-evaluation platform**. In team-based courses, students rate their teammates each sprint. Professors see analytics, trends, alerts about struggling students/teams, and AI-generated summaries of the written feedback — without students ever seeing each other's evaluations.
 
+The platform is **multi-course**: a single instructor can run several courses, and all data (teams, rounds, questions, analytics) is scoped per course. Each user's access is governed by their enrollment in a course (`CourseEnrollment`), not just their global role.
+
 Two roles:
 
 | Role | What they can do |
 | --- | --- |
-| **Student** | Evaluate teammates in the open round (once, immutable), view their own past submissions |
-| **Professor** | Manage teams/students (CSV import), manage questions, open/close rounds, view analytics + trends, resolve alerts, generate AI summaries, export reports |
+| **Student** | Evaluate teammates in the open round (once, immutable), view their own past submissions, and read AI feedback an instructor has released to them |
+| **Professor** | Manage teams/students (CSV import), manage questions, open/close rounds, view analytics + trends, resolve alerts, generate/review/edit and release AI summaries, export reports — across one or more courses they teach |
 
 ---
 
@@ -70,16 +72,19 @@ PostgreSQL
 
 ### Database models (`prisma/schema.prisma`)
 
-- `User` (role STUDENT/PROFESSOR) ── belongs to one `Team` via `TeamMembership`
-- `EvaluationRound` (DRAFT → OPEN → CLOSED, one per sprint)
+- `Course` ── a course offering (code, term); everything below is scoped to a course
+- `CourseEnrollment` ── links a `User` to a `Course` with a course role (STUDENT / INSTRUCTOR / TA); authorization checks this, not just the global role
+- `User` (global role STUDENT/PROFESSOR) ── enrolled in one or more courses; placed on a `Team` **per course** via `TeamMembership`
+- `EvaluationRound` (DRAFT → OPEN → CLOSED, one per sprint per course)
 - `Question` (RATING 1–5 or TEXT; orderable; deactivated instead of deleted if it has history)
 - `Submission` ── one per (round, evaluator); **unique constraint makes re-submission impossible**
   - `PeerEvaluation` ── one per teammate evaluated
     - `Answer` ── one per question (rating or comment)
 - `AnalyticsSnapshot` ── frozen analytics JSON captured when a round closes
-- `AISummary` ── generated text (per round / team / student, several kinds)
-- `Alert` ── LOW_AVERAGE, DOWNWARD_TREND, REPEATED_CONCERN, MISSING_SUBMISSION (severity info/warning/critical)
+- `AISummary` ── generated text (per round / team / student; kinds COMPLAINTS, POSITIVES, CONSTRUCTIVE, INSTRUCTOR, STUDENT_FEEDBACK). Status DRAFT → RELEASED; instructors can edit the draft text (`editedAt`) before releasing a student-shareable summary
+- `Alert` ── LOW_AVERAGE, DOWNWARD_TREND, REPEATED_CONCERN, MISSING_SUBMISSION (severity INFO/WARNING/CRITICAL)
 - `Setting` ── key-value config (alert thresholds)
+- `AuthToken` ── hashed one-time invite / password-reset tokens
 - `AuditLog`, `Notification`
 
 ### Security invariants (enforced server-side, covered by tests)
@@ -158,10 +163,15 @@ Do these in order — it follows the real lifecycle of a course sprint.
 2. **Resolve** an alert → it moves out of the active list.
 3. In **Settings**, change alert thresholds and close another round to see the effect.
 
-### Step 8 — Professor: AI summaries
-1. Open **Summaries**, pick a closed round, generate summaries (complaints / positives / constructive, per round, team, or student).
-2. Without an `AI_API_KEY` in `.env`, a **deterministic mock** generates them — fine for testing the flow. With a key (any OpenAI-compatible endpoint via `AI_BASE_URL`/`AI_MODEL`), real AI output.
+### Step 8 — Professor: AI summaries (generate → review/edit → release)
+1. Open **AI Summaries**. The collapsible **"How it works"** panel explains the flow and the five summary types:
+   - **Instructor briefing**, **Complaint summary**, **Positive summary**, **Constructive feedback** — for the instructor's eyes only.
+   - **Student-shareable feedback** — anonymized, written to hand directly to a student.
+2. Pick a round with written feedback and a scope (whole round / team / student), then **Generate** a draft. Without an `AI_API_KEY` in `.env`, a **deterministic mock** produces text — fine for testing the flow; with a key (any OpenAI-compatible endpoint via `AI_BASE_URL`/`AI_MODEL`), real AI output. **Bulk generate** fans out one summary per student (or team) with feedback, as a background job.
 3. Verify anonymity: summaries talk about the evaluatee, never name who wrote the feedback.
+4. On a **draft** summary, click **Edit** to revise the wording, then **Save** — it gets an "Edited by instructor" badge. Editing is only possible while the summary is a draft.
+5. On a **Student-shareable feedback** draft, click **Release to student**. Released summaries are frozen (no longer editable) and the student is notified.
+6. **Confirm the student side:** log in as that student → **My feedback** (`/student/feedback`) shows exactly the released text. Non-shareable kinds are never visible to students.
 
 ### Step 9 — Professor: reports
 1. Open **Reports**, pick a closed round → export/download the round report (per-student scores and feedback rollup).
@@ -175,7 +185,7 @@ npm test              # Vitest — needs a `vtpeerpulse_test` Postgres DB (.env.
 npm run test:e2e      # Playwright — starts dev server, drives real browser flows
 ```
 
-Test files map to features: `evaluations.test.ts`, `analytics.test.ts`, `questions-rounds.test.ts`, `summaries.test.ts`, `csv-import.test.ts`, `api-auth.test.ts`, plus `e2e/smoke.spec.ts`.
+Test files map to features: `evaluations.test.ts`, `analytics.test.ts`, `questions-rounds.test.ts`, `summaries.test.ts`, `csv-import.test.ts`, `api-auth.test.ts`, `phase1.test.ts` (tenancy/onboarding/notifications), `tier2.test.ts` (semester rollover), `login-form.test.tsx`, plus the Playwright specs `e2e/smoke.spec.ts` and `e2e/lifecycle.spec.ts`.
 
 ---
 
