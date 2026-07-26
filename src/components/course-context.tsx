@@ -61,7 +61,7 @@ export function CourseSwitcher({
     >
       <SelectTrigger
         aria-label="Active course"
-        className="h-8 w-56 border-white/30 bg-transparent text-white"
+        className="h-8 w-40 border-white/30 bg-transparent text-white sm:w-56"
       >
         <SelectValue />
       </SelectTrigger>

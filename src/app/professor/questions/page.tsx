@@ -149,7 +149,11 @@ export default function QuestionsPage() {
           ) : (
             <ul className="space-y-2">
               {questions.map((q, i) => (
-                <li key={q.id} className="flex items-center gap-3 rounded-md border p-3">
+                <li
+                  key={q.id}
+                  className="flex flex-col gap-3 rounded-md border p-3 sm:flex-row sm:items-center"
+                >
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
                   <div className="flex flex-col">
                     <Button
                       variant="ghost"
@@ -172,16 +176,17 @@ export default function QuestionsPage() {
                       ↓
                     </Button>
                   </div>
-                  <div className="flex-1">
+                  <div className="min-w-0 flex-1">
                     {editingId === q.id ? (
                       <form
-                        className="flex gap-2"
+                        className="flex flex-wrap gap-2"
                         onSubmit={(e) => {
                           e.preventDefault();
                           update.mutate({ id: q.id, prompt: editPrompt });
                         }}
                       >
                         <Input
+                          className="min-w-0 flex-1"
                           value={editPrompt}
                           onChange={(e) => setEditPrompt(e.target.value)}
                           minLength={3}
@@ -196,7 +201,7 @@ export default function QuestionsPage() {
                       </form>
                     ) : (
                       <>
-                        <p className={q.active ? "" : "text-muted-foreground line-through"}>
+                        <p className={q.active ? "break-words" : "break-words text-muted-foreground line-through"}>
                           {q.prompt}
                         </p>
                         <div className="mt-1 flex gap-2">
@@ -206,8 +211,9 @@ export default function QuestionsPage() {
                       </>
                     )}
                   </div>
+                  </div>
                   {editingId !== q.id && (
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button
                         size="sm"
                         variant="outline"
