@@ -31,10 +31,11 @@ npm run dev                   # http://localhost:3000
 after every `git pull`. Only use `npx prisma migrate dev` when you are *authoring*
 a new schema change locally.
 
-Seeded logins (password `password123`):
+Seeded logins (all password `password123`):
 
 - Professor: `professor@vt.edu`
-- Students: `joe@vt.edu`, `peter@vt.edu`, `sarah@vt.edu`, `aisha@vt.edu`, …
+- Students — **Team Alpha**: `joe@vt.edu` (Joe Miller), `peter@vt.edu` (Peter Chen), `sarah@vt.edu` (Sarah Lopez)
+- Students — **Team Beta**: `aisha@vt.edu` (Aisha Khan), `marcus@vt.edu` (Marcus Reed), `elena@vt.edu` (Elena Petrova), `david@vt.edu` (David Park)
 
 ### After pulling new changes
 
