@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { resolveCourses } from "@/server/course-resolution";
 import { AppHeader } from "@/components/app-header";
 import { CourseProvider } from "@/components/course-context";
-import { ProfessorNav } from "./nav";
+import { ProfessorMobileNav, ProfessorNav } from "./nav";
 
 export default async function ProfessorLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -39,9 +39,10 @@ export default async function ProfessorLayout({ children }: { children: React.Re
           course={active}
           courses={courses}
         />
+        <ProfessorMobileNav />
         <div className="flex flex-1">
           <ProfessorNav />
-          <main id="main" className="w-full max-w-6xl flex-1 p-6">
+          <main id="main" className="w-full min-w-0 max-w-6xl flex-1 p-4 sm:p-6">
             {children}
           </main>
         </div>
