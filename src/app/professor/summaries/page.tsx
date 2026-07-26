@@ -17,6 +17,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { BulkGenerate } from "./bulk-generate";
+import { SUMMARY_KINDS as KINDS } from "./kinds";
 
 type Round = { id: string; name: string; sprint: number };
 type Team = { id: string; name: string };
@@ -36,39 +37,6 @@ type Summary = {
   round: { name: string; sprint: number };
 };
 type SummaryPage = { items: Summary[]; total: number; page: number; pageSize: number };
-
-const KINDS = [
-  {
-    value: "INSTRUCTOR",
-    label: "Instructor briefing",
-    blurb: "A private overview for you: overall team health, risks, and students who may need support. Never shown to students.",
-    shareable: false,
-  },
-  {
-    value: "COMPLAINTS",
-    label: "Complaint summary",
-    blurb: "Groups the recurring concerns and criticisms raised in the feedback. For your review only.",
-    shareable: false,
-  },
-  {
-    value: "POSITIVES",
-    label: "Positive summary",
-    blurb: "Groups the strengths and praise mentioned in the feedback. For your review only.",
-    shareable: false,
-  },
-  {
-    value: "CONSTRUCTIVE",
-    label: "Constructive feedback",
-    blurb: "Turns the feedback into specific, encouraging, actionable suggestions. For your review only.",
-    shareable: false,
-  },
-  {
-    value: "STUDENT_FEEDBACK",
-    label: "Student-shareable feedback",
-    blurb: "Anonymized feedback written to give directly to a student. You can review, edit, then release it to them.",
-    shareable: true,
-  },
-];
 
 const PAGE_SIZE = 20;
 
