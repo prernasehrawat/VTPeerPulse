@@ -261,6 +261,9 @@ model AISummary {
   content     String
   model       String
   status      SummaryStatus   @default(DRAFT)
+  /// Set when an instructor edits the AI-generated text before releasing it, so
+  /// UIs can distinguish an untouched AI draft from an instructor-revised one.
+  editedAt    DateTime?
   releasedAt  DateTime?
   createdAt   DateTime        @default(now())
 

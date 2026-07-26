@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { setAIProvider } from "@/server/ai";
 import type { ChatMessage } from "@/server/ai/provider";
-import { generateSummary, listSummaries } from "@/server/services/summaries";
+import { editSummary, generateSummary, listSummaries, releaseSummary } from "@/server/services/summaries";
 import type { User, Question, EvaluationRound, Team, Course } from "@/generated/prisma/client";
 import {
   createCourse, createOpenRound, createProfessor, createQuestions, createTeamWithStudents,
@@ -89,5 +89,44 @@ describe("generateSummary", () => {
     await expect(
       generateSummary({ roundId: empty.id, subjectType: "ROUND", kind: "POSITIVES" }, course.id, actorId),
     ).rejects.toThrow("No comments");
+  });
+});
+
+describe("editSummary", () => {
+  async function draftFor(kind: "INSTRUCTOR" | "STUDENT_FEEDBACK" = "STUDENT_FEEDBACK") {
+    return generateSummary(
+      { roundId: round.id, subjectType: "STUDENT", subjectId: peter.id, kind },
+      course.id,
+      actorId,
+    );
+  }
+
+  it("revises a draft's text and stamps editedAt", async () => {
+    const summary = await draftFor();
+    expect(summary.editedAt).toBeNull();
+    const updated = await editSummary(summary.id, course.id, actorId, "  Instructor-revised feedback.  ");
+    expect(updated.content).toBe("Instructor-revised feedback."); // trimmed
+    expect(updated.editedAt).toBeInstanceOf(Date);
+  });
+
+  it("refuses to edit a released summary", async () => {
+    const summary = await draftFor();
+    await releaseSummary(summary.id, course.id, actorId);
+    await expect(
+      editSummary(summary.id, course.id, actorId, "too late"),
+    ).rejects.toThrow("already been released");
+  });
+
+  it("rejects empty content", async () => {
+    const summary = await draftFor();
+    await expect(editSummary(summary.id, course.id, actorId, "   ")).rejects.toThrow("can't be empty");
+  });
+
+  it("404s for a summary in another course", async () => {
+    const summary = await draftFor();
+    const other = await createCourse();
+    await expect(
+      editSummary(summary.id, other.id, actorId, "nope"),
+    ).rejects.toThrow("Summary not found");
   });
 });

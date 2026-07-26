@@ -138,5 +138,12 @@ export const bulkSummarySchema = z.object({
 });
 export type BulkSummaryInput = z.infer<typeof bulkSummarySchema>;
 
+// Instructor edit of a draft summary's text before releasing it. Bounded to the
+// same ceiling the generator caps AI output at.
+export const summaryEditSchema = z.object({
+  content: z.string().trim().min(1, "Summary can't be empty").max(20_000),
+});
+export type SummaryEditInput = z.infer<typeof summaryEditSchema>;
+
 export type SubmissionInput = z.infer<typeof submissionSchema>;
 export type SummaryRequest = z.infer<typeof summaryRequestSchema>;

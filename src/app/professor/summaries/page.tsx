@@ -1,10 +1,12 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Info, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api-client";
 import { useCourse } from "@/components/course-context";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +15,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { BulkGenerate } from "./bulk-generate";
 
 type Round = { id: string; name: string; sprint: number };
@@ -27,6 +30,7 @@ type Summary = {
   content: string;
   model: string;
   status: "DRAFT" | "RELEASED";
+  editedAt: string | null;
   releasedAt: string | null;
   createdAt: string;
   round: { name: string; sprint: number };
@@ -34,11 +38,36 @@ type Summary = {
 type SummaryPage = { items: Summary[]; total: number; page: number; pageSize: number };
 
 const KINDS = [
-  { value: "INSTRUCTOR", label: "Instructor briefing" },
-  { value: "COMPLAINTS", label: "Complaint summary" },
-  { value: "POSITIVES", label: "Positive summary" },
-  { value: "CONSTRUCTIVE", label: "Constructive feedback" },
-  { value: "STUDENT_FEEDBACK", label: "Student-shareable feedback" },
+  {
+    value: "INSTRUCTOR",
+    label: "Instructor briefing",
+    blurb: "A private overview for you: overall team health, risks, and students who may need support. Never shown to students.",
+    shareable: false,
+  },
+  {
+    value: "COMPLAINTS",
+    label: "Complaint summary",
+    blurb: "Groups the recurring concerns and criticisms raised in the feedback. For your review only.",
+    shareable: false,
+  },
+  {
+    value: "POSITIVES",
+    label: "Positive summary",
+    blurb: "Groups the strengths and praise mentioned in the feedback. For your review only.",
+    shareable: false,
+  },
+  {
+    value: "CONSTRUCTIVE",
+    label: "Constructive feedback",
+    blurb: "Turns the feedback into specific, encouraging, actionable suggestions. For your review only.",
+    shareable: false,
+  },
+  {
+    value: "STUDENT_FEEDBACK",
+    label: "Student-shareable feedback",
+    blurb: "Anonymized feedback written to give directly to a student. You can review, edit, then release it to them.",
+    shareable: true,
+  },
 ];
 
 const PAGE_SIZE = 20;
@@ -47,6 +76,27 @@ export default function SummariesPage() {
   const qc = useQueryClient();
   const { course } = useCourse();
   const [page, setPage] = useState(1);
+
+  // First-time explainer: shown until the instructor dismisses it, then
+  // reopenable from the header. Its dismissed state persists in localStorage
+  // (same lazy-init pattern the evaluation form uses for its draft).
+  const GUIDE_KEY = "peerpulse-summaries-guide-dismissed";
+  const [showGuide, setShowGuide] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem(GUIDE_KEY) !== "1";
+    } catch {
+      return true;
+    }
+  });
+  const dismissGuide = () => {
+    setShowGuide(false);
+    try {
+      window.localStorage.setItem(GUIDE_KEY, "1");
+    } catch {
+      // best-effort; the guide simply reappears next visit
+    }
+  };
   const { data: rounds } = useQuery({
     queryKey: ["rounds", course.id],
     queryFn: () => api<Round[]>(`/api/rounds?courseId=${course.id}`),
@@ -98,15 +148,88 @@ export default function SummariesPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // Which draft is open for editing, and its working text.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const beginEdit = (s: Summary) => {
+    setEditingId(s.id);
+    setDraft(s.content);
+  };
+  const edit = useMutation({
+    mutationFn: (id: string) =>
+      api(`/api/summaries/${id}?courseId=${course.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ content: draft }),
+      }),
+    onSuccess: () => {
+      toast.success("Summary updated");
+      setEditingId(null);
+      qc.invalidateQueries({ queryKey: ["summaries"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const subjectOptions =
     subjectType === "TEAM" ? teams : subjectType === "STUDENT" ? students?.items : [];
+  const selectedKind = KINDS.find((k) => k.value === kind);
   const totalPages = summaries ? Math.max(1, Math.ceil(summaries.total / PAGE_SIZE)) : 1;
 
   return (
     <div className="space-y-6">
+      {showGuide && (
+        <Alert className="relative pr-10">
+          <Info />
+          <button
+            type="button"
+            aria-label="Dismiss guide"
+            onClick={dismissGuide}
+            className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
+          >
+            <X className="size-4" />
+          </button>
+          <AlertTitle>New here? How AI summaries work</AlertTitle>
+          <AlertDescription>
+            <p>
+              PeerPulse reads the anonymous written feedback from a round and drafts a summary
+              for you. Reviewer identities are never included. The flow is always:
+            </p>
+            <p>
+              <strong>1. Generate</strong> a draft &rarr; <strong>2. Review &amp; edit</strong> the
+              text &rarr; <strong>3. Release</strong> it to the student (student-shareable type only).
+            </p>
+            <p className="font-medium text-foreground">Pick the type that matches what you need:</p>
+            <ul className="grid gap-1">
+              {KINDS.map((k) => (
+                <li key={k.value}>
+                  <span className="font-medium text-foreground">{k.label}</span>
+                  {k.shareable && (
+                    <Badge variant="secondary" className="ml-1.5 align-middle">
+                      Can be sent to students
+                    </Badge>
+                  )}{" "}
+                  — {k.blurb}
+                </li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Generate AI summary</CardTitle>
+          <div className="flex items-start justify-between gap-2">
+            <CardTitle className="text-base">Generate AI summary</CardTitle>
+            {!showGuide && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="-mt-1 h-auto gap-1 px-2 py-1 text-xs text-muted-foreground"
+                onClick={() => setShowGuide(true)}
+              >
+                <Info className="size-3.5" /> How it works
+              </Button>
+            )}
+          </div>
           <CardDescription>
             Summarizes written feedback from a round. Reviewer identities are never included.
             Student-shareable feedback stays private until you release it.
@@ -197,6 +320,12 @@ export default function SummariesPage() {
             <Button type="submit" disabled={generate.isPending}>
               {generate.isPending ? "Generating…" : "Generate"}
             </Button>
+            {selectedKind && (
+              <p className="w-full text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">{selectedKind.label}:</span>{" "}
+                {selectedKind.blurb}
+              </p>
+            )}
           </form>
         </CardContent>
       </Card>
@@ -228,23 +357,62 @@ export default function SummariesPage() {
                         ) : (
                           <Badge variant="destructive">Not released</Badge>
                         ))}
+                      {s.editedAt && <Badge variant="outline">Edited by instructor</Badge>}
                       <span className="text-xs text-muted-foreground">
                         {s.round.name} (Sprint {s.round.sprint}) · {s.model} ·{" "}
                         {new Date(s.createdAt).toLocaleString()}
                       </span>
-                      {s.kind === "STUDENT_FEEDBACK" && s.status === "DRAFT" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="ml-auto"
-                          onClick={() => release.mutate(s.id)}
-                          disabled={release.isPending}
-                        >
-                          Release to student
-                        </Button>
+                      {s.status === "DRAFT" && editingId !== s.id && (
+                        <div className="ml-auto flex gap-2">
+                          <Button size="sm" variant="ghost" onClick={() => beginEdit(s)}>
+                            Edit
+                          </Button>
+                          {s.kind === "STUDENT_FEEDBACK" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => release.mutate(s.id)}
+                              disabled={release.isPending}
+                            >
+                              Release to student
+                            </Button>
+                          )}
+                        </div>
                       )}
                     </div>
-                    <p className="whitespace-pre-wrap text-sm">{s.content}</p>
+                    {editingId === s.id ? (
+                      <div className="space-y-2">
+                        <Textarea
+                          value={draft}
+                          maxLength={20_000}
+                          rows={Math.min(20, Math.max(6, draft.split("\n").length + 1))}
+                          onChange={(e) => setDraft(e.target.value)}
+                          aria-label="Edit summary text"
+                        />
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => edit.mutate(s.id)}
+                            disabled={edit.isPending || !draft.trim()}
+                          >
+                            {edit.isPending ? "Saving…" : "Save changes"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setEditingId(null)}
+                            disabled={edit.isPending}
+                          >
+                            Cancel
+                          </Button>
+                          <p className="text-xs text-muted-foreground">
+                            Review and revise before releasing — students see exactly this text.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="whitespace-pre-wrap text-sm">{s.content}</p>
+                    )}
                   </li>
                 ))}
               </ul>
