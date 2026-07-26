@@ -1,12 +1,10 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Info, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api-client";
 import { useCourse } from "@/components/course-context";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,6 +15,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { BulkGenerate } from "./bulk-generate";
+import { SummaryGuide } from "./guide";
 import { SUMMARY_KINDS as KINDS } from "./kinds";
 
 type Round = { id: string; name: string; sprint: number };
@@ -44,27 +43,6 @@ export default function SummariesPage() {
   const qc = useQueryClient();
   const { course } = useCourse();
   const [page, setPage] = useState(1);
-
-  // First-time explainer: shown until the instructor dismisses it, then
-  // reopenable from the header. Its dismissed state persists in localStorage
-  // (same lazy-init pattern the evaluation form uses for its draft).
-  const GUIDE_KEY = "peerpulse-summaries-guide-dismissed";
-  const [showGuide, setShowGuide] = useState(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      return window.localStorage.getItem(GUIDE_KEY) !== "1";
-    } catch {
-      return true;
-    }
-  });
-  const dismissGuide = () => {
-    setShowGuide(false);
-    try {
-      window.localStorage.setItem(GUIDE_KEY, "1");
-    } catch {
-      // best-effort; the guide simply reappears next visit
-    }
-  };
   const { data: rounds } = useQuery({
     queryKey: ["rounds", course.id],
     queryFn: () => api<Round[]>(`/api/rounds?courseId=${course.id}`),
@@ -144,60 +122,10 @@ export default function SummariesPage() {
 
   return (
     <div className="space-y-6">
-      {showGuide && (
-        <Alert className="relative pr-10">
-          <Info />
-          <button
-            type="button"
-            aria-label="Dismiss guide"
-            onClick={dismissGuide}
-            className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
-          >
-            <X className="size-4" />
-          </button>
-          <AlertTitle>New here? How AI summaries work</AlertTitle>
-          <AlertDescription>
-            <p>
-              PeerPulse reads the anonymous written feedback from a round and drafts a summary
-              for you. Reviewer identities are never included. The flow is always:
-            </p>
-            <p>
-              <strong>1. Generate</strong> a draft &rarr; <strong>2. Review &amp; edit</strong> the
-              text &rarr; <strong>3. Release</strong> it to the student (student-shareable type only).
-            </p>
-            <p className="font-medium text-foreground">Pick the type that matches what you need:</p>
-            <ul className="grid gap-1">
-              {KINDS.map((k) => (
-                <li key={k.value}>
-                  <span className="font-medium text-foreground">{k.label}</span>
-                  {k.shareable && (
-                    <Badge variant="secondary" className="ml-1.5 align-middle">
-                      Can be sent to students
-                    </Badge>
-                  )}{" "}
-                  — {k.blurb}
-                </li>
-              ))}
-            </ul>
-          </AlertDescription>
-        </Alert>
-      )}
+      <SummaryGuide />
       <Card>
         <CardHeader>
-          <div className="flex items-start justify-between gap-2">
-            <CardTitle className="text-base">Generate AI summary</CardTitle>
-            {!showGuide && (
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="-mt-1 h-auto gap-1 px-2 py-1 text-xs text-muted-foreground"
-                onClick={() => setShowGuide(true)}
-              >
-                <Info className="size-3.5" /> How it works
-              </Button>
-            )}
-          </div>
+          <CardTitle className="text-base">Generate AI summary</CardTitle>
           <CardDescription>
             Summarizes written feedback from a round. Reviewer identities are never included.
             Student-shareable feedback stays private until you release it.
