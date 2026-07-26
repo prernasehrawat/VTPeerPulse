@@ -117,7 +117,7 @@ Key invariants (enforced server-side and covered by tests):
 - Closing a round snapshots analytics and generates alerts (low average, downward trend, repeated concern, missing submission) with configurable thresholds; closed rounds are always served from the frozen snapshot.
 - Sessions are revalidated against the database on every API call — deactivating a user takes effect immediately.
 - Imported students receive email invites with one-time set-password links; password resets are self-service.
-- AI feedback for students requires explicit instructor release, with roster names scrubbed from the source text.
+- AI feedback for students is generated as a draft the instructor can review and **edit** before explicitly **releasing** it; roster names are scrubbed from the source text, and a released summary is frozen (no longer editable).
 
 ### Swapping the AI provider
 
@@ -132,4 +132,5 @@ Set `OIDC_ISSUER`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` (any OIDC-complian
 - `docker-compose.prod.yml` — hardened topology (localhost-only app behind your TLS proxy, nightly backups with retention, health checks).
 - `docs/RUNBOOK.md` — deploy, monitoring, backup/restore drills, incident basics.
 - `docs/SECURITY.md` / `docs/PRIVACY.md` — security posture and FERPA notes for procurement review.
+- `docs/FUTURE_WORK.md` — handoff notes: features the professor may want next, with open questions and where to start.
 - `GET /api/health` — load-balancer probe. Every API error carries an `x-request-id` for log correlation.

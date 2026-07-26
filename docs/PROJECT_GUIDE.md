@@ -201,3 +201,5 @@ Test files map to features: `evaluations.test.ts`, `analytics.test.ts`, `questio
 | New alert type | `AlertType` enum in schema + logic in `src/server/services/rounds.ts`/`analytics.ts` |
 
 Always add a matching test in `tests/` — the invariants in section 3 are the things that must never break.
+
+> Looking for what to build next? See [`docs/FUTURE_WORK.md`](./FUTURE_WORK.md) for handed-over feature ideas and open questions.
